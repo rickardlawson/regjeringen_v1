@@ -178,11 +178,83 @@ def normaliser_interpellasjon(post: dict[str, Any]) -> Dokument | None:
     )
 
 
+def normaliser_horing(post: dict[str, Any]) -> Dokument | None:
+    """Normaliser en høring fra APIet.
+
+    En høring har ingen egen tittel — den identifiseres av saken eller sakene
+    den gjelder. Tittelen bygges derfor fra `horing_sak_info_liste`.
+    """
+    horing_id = post.get("id")
+    if horing_id is None:
+        return None
+
+    saker = post.get("horing_sak_info_liste") or []
+    sakstitler = [
+        rydd_tekst(s.get("sak_korttittel") or s.get("sak_tittel") or "")
+        for s in saker
+        if isinstance(s, dict)
+    ]
+    sakstitler = [t for t in sakstitler if t]
+    if not sakstitler:
+        return None
+
+    skriftlig = bool(post.get("skriftlig"))
+    dokumenttype = "Skriftlig høring" if skriftlig else "Høring"
+    tittel = f"{dokumenttype}: {' / '.join(sakstitler)}"
+
+    # Sted og tidspunkt er det som gjør en høring handlingsrelevant for en
+    # rådgiver — det er der man faktisk kan møte opp.
+    steder = [
+        rydd_tekst(t.get("sted") or "")
+        for t in (post.get("horingstidspunkt_liste") or [])
+        if isinstance(t, dict) and t.get("sted")
+    ]
+
+    komite = _navn(post, "komite")
+    biter = [b for b in (komite, ", ".join(dict.fromkeys(steder))) if b]
+    frist = parse_dato(post.get("innspillsfrist"))
+    if frist:
+        biter.append(f"Innspillsfrist {frist:%d.%m.%Y}")
+
+    henvisning = ""
+    for s in saker:
+        if isinstance(s, dict) and s.get("sak_henvisning"):
+            henvisning = rydd_tekst(s["sak_henvisning"])
+            break
+
+    # Lenk til saken høringen gjelder — RSS-feeden gjør det samme.
+    url = ""
+    for s in saker:
+        if isinstance(s, dict) and s.get("sak_id"):
+            url = sak_url(s["sak_id"])
+            break
+
+    tidspunkt = (post.get("horingstidspunkt_liste") or [{}])[0]
+    return Dokument(
+        kilde="stortinget_horing",
+        kilde_id=str(horing_id),
+        kildenavn="Stortinget: Høringer",
+        tittel=tittel,
+        sammendrag=" · ".join(biter),
+        dokumenttype=dokumenttype,
+        henvisning=henvisning,
+        url=url,
+        publisert=(
+            parse_dato(post.get("start_dato"))
+            or parse_dato(tidspunkt.get("tidspunkt") if isinstance(tidspunkt, dict) else None)
+        ),
+        komite=komite,
+        status=rydd_tekst(post.get("horing_status")),
+        rådata=post,
+    )
+
+
 _NORMALISERERE: dict[str, Callable[[dict[str, Any]], Dokument | None]] = {
     "stortinget_sak": normaliser_sak,
     "stortinget_skriftlig_sporsmal": normaliser_skriftlig_sporsmal,
     "stortinget_sporretime": normaliser_sporretime,
     "stortinget_interpellasjon": normaliser_interpellasjon,
+    "stortinget_horing": normaliser_horing,
 }
 
 

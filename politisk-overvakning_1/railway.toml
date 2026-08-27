@@ -3,6 +3,8 @@ builder = "dockerfile"
 dockerfilePath = "Dockerfile"
 
 [deploy]
+startCommand = "python3 hent.py"
+
 # Ingen healthcheck: dette er en cron-jobb, ikke en webtjeneste. Det finnes
 # ingen port å sjekke, og containeren skal avslutte når jobben er gjort.
 #

@@ -53,6 +53,22 @@ API_KILDER: tuple[ApiKilde, ...] = (
         endepunkt="interpellasjoner",
         listenokkel="sporsmal_liste",
     ),
+    # Høringer hentes fra APIet, ikke fra RSS-feeden.
+    #
+    # RSS-versjonen hadde tom <description> på samtlige poster og ingen <guid>.
+    # ID-en måtte da hashes fra tittel og dato alene, og 27.08.2026 førte det
+    # til at alle 234 høringer ble registrert som nye på nytt i én kjøring.
+    # Hadde varslingslaget vært i drift, ville hver bruker fått 234 varsler om
+    # saker de allerede hadde sett.
+    #
+    # APIet gir 351 høringer med ekte, stabile ID-er — flere enn RSS, og med
+    # komité, sted, frister og tilknyttet sak som strukturerte felter.
+    ApiKilde(
+        navn="stortinget_horing",
+        kildenavn="Stortinget: Høringer",
+        endepunkt="horinger",
+        listenokkel="horinger_liste",
+    ),
 )
 
 
@@ -66,12 +82,10 @@ class RssKilde:
 # Kun det APIet ikke gir oss. Stortinget har ~150 RSS-feeder, men de fleste er
 # delmengder av data vi allerede henter strukturert via APIet — å abonnere på
 # dem i tillegg ville bare gitt duplikater med dårligere metadata.
+#
+# Alt som ligger her har syntetiske ID-er og er derfor mindre pålitelig
+# deduplisert enn API-kildene. Finnes noe i APIet, hent det derfra.
 RSS_KILDER: tuple[RssKilde, ...] = (
-    RssKilde(
-        navn="stortinget_horing",
-        kildenavn="Stortinget: Høringer",
-        url=f"{RSS_BASE}/Horingsliste/",
-    ),
     RssKilde(
         navn="stortinget_aktuelt",
         kildenavn="Stortinget: Aktuelt",

@@ -86,12 +86,14 @@ _FEED = """<?xml version="1.0" encoding="utf-8"?>
       <title>Skriftlig spørsmål fra A til fiskeri- og havministeren</title>
       <link>https://www.stortinget.no/no/Saker-og-publikasjoner/Sporsmal/</link>
       <description>Om havbruk i Oslofjorden.</description>
+      <guid>tag:stortinget.no,2000:innhold.aaa</guid>
       <dc:date>2026-08-20T10:00:00+02:00</dc:date>
     </item>
     <item>
       <title>Skriftlig spørsmål fra B til energiministeren</title>
       <link>https://www.stortinget.no/no/Saker-og-publikasjoner/Sporsmal/</link>
       <description>Om strømpriser.</description>
+      <guid>tag:stortinget.no,2000:innhold.bbb</guid>
       <dc:date>2026-08-19T10:00:00+02:00</dc:date>
     </item>
   </channel>
@@ -110,30 +112,46 @@ def test_rss_leser_dc_date_naar_pubdate_mangler() -> None:
     assert docs[0].publisert.day == 20
 
 
-def test_rss_syntetisk_id_naar_guid_mangler() -> None:
-    """Stortingets feeder har tom <guid> og lik <link> for alle poster."""
+def test_rss_bruker_guid_som_id() -> None:
     docs = rss.parse_feed(_FEED, _KILDE)
-    assert all(d.id_er_syntetisk for d in docs)
-    # Lik lenke skal IKKE gi lik ID — ellers kolliderer alle poster.
-    assert docs[0].url == docs[1].url
-    assert docs[0].kilde_id != docs[1].kilde_id
+    assert docs[0].kilde_id == "tag:stortinget.no,2000:innhold.aaa"
+    assert docs[0].id_er_syntetisk is False
 
 
-def test_rss_id_er_stabil_mellom_kjoringer() -> None:
-    """Samme innhold må gi samme ID, ellers varsles alt på nytt hver time."""
+def test_post_uten_guid_forkastes() -> None:
+    """Dette er fiksen på produksjonsfeilen 27.08.2026.
+
+    Koden falt tidligere tilbake på en innholdshash når <guid> manglet.
+    Stortingets feeder leverte ingen guid 26.08, og guid 27.08. ID-ordningen
+    byttet dermed under føttene på oss, og alle 262 RSS-dokumenter ble
+    registrert som nye på nytt i én kjøring. Hadde varslingslaget vært i
+    drift, ville hver First House-bruker fått 262 duplikatvarsler.
+
+    En post uten stabil ID skal forkastes, ikke få en ID som kan bytte
+    ordning senere.
+    """
+    feed = _FEED.replace(
+        "<guid>tag:stortinget.no,2000:innhold.bbb</guid>", ""
+    )
+    docs = rss.parse_feed(feed, _KILDE)
+    assert len(docs) == 1
+    assert all(d.kilde_id.startswith("tag:") for d in docs)
+
+
+def test_feed_helt_uten_guid_avvises_hoylytt() -> None:
+    """Stille degradering er verre enn en tydelig feil. Kommer det en feed
+    uten stabile ID-er, skal kilden feile — ikke levere data som ikke kan
+    dedupliseres."""
+    feed = _FEED.replace("<guid>tag:stortinget.no,2000:innhold.aaa</guid>", "")
+    feed = feed.replace("<guid>tag:stortinget.no,2000:innhold.bbb</guid>", "")
+    with pytest.raises(rss.RssFeil):
+        rss.parse_feed(feed, _KILDE)
+
+
+def test_id_er_stabil_mellom_kjoringer() -> None:
     a = rss.parse_feed(_FEED, _KILDE)
     b = rss.parse_feed(_FEED, _KILDE)
     assert [d.kilde_id for d in a] == [d.kilde_id for d in b]
-
-
-def test_rss_bruker_guid_naar_den_finnes() -> None:
-    feed = _FEED.replace(
-        "<description>Om havbruk i Oslofjorden.</description>",
-        "<description>Om havbruk.</description><guid>ekte-id-123</guid>",
-    )
-    docs = rss.parse_feed(feed, _KILDE)
-    assert docs[0].kilde_id == "ekte-id-123"
-    assert docs[0].id_er_syntetisk is False
 
 
 def test_ugyldig_xml_gir_tydelig_feil() -> None:
@@ -265,3 +283,89 @@ def test_innholdshash_ignorerer_ren_reformatering() -> None:
 def test_rydd_tekst_fjerner_html_og_entiteter() -> None:
     assert rydd_tekst("<p>Hei&nbsp;&amp; ha det</p>") == "Hei & ha det"
     assert rydd_tekst(None) == ""
+
+
+# ---------------------------------------------------------------------------
+# Høringer fra API — erstattet den skjøre RSS-kilden
+# ---------------------------------------------------------------------------
+_HORING = {
+    "id": 10005544,
+    "skriftlig": False,
+    "horing_status": "Avholdt",
+    "start_dato": "/Date(1761550200000+0100)/",
+    "innspillsfrist": "/Date(1761083940000+0200)/",
+    "komite": {"id": "ARBSOS", "navn": "Arbeids- og sosialkomiteen"},
+    "horingstidspunkt_liste": [
+        {"sted": "Stortingets komitéhus, Høringssal 1",
+         "tidspunkt": "/Date(1761550200000+0100)/"}
+    ],
+    "horing_sak_info_liste": [
+        {"sak_id": 104908,
+         "sak_korttittel": "Statsbudsjettet 2026 (arbeids- og sosialkomiteen)",
+         "sak_henvisning": "Prop. 1 S (2025-2026), Innst. 15 S (2025-2026)"}
+    ],
+}
+
+
+def test_horing_bruker_ekte_id_fra_api() -> None:
+    """Høringer hentes fra APIet, ikke RSS.
+
+    RSS-versjonen hadde tom <description> på samtlige poster, så ID-en hvilte
+    på tittel og dato alene. APIet gir 351 høringer med stabile ID-er.
+    """
+    d = stortinget_api.normaliser_horing(_HORING)
+    assert d is not None
+    assert d.kilde_id == "10005544"
+    assert d.id_er_syntetisk is False
+    assert d.dokumenttype == "Høring"
+    assert d.komite == "Arbeids- og sosialkomiteen"
+    assert d.status == "Avholdt"
+
+
+def test_horing_bygger_tittel_fra_saken() -> None:
+    """En høring har ingen egen tittel — den identifiseres av saken."""
+    d = stortinget_api.normaliser_horing(_HORING)
+    assert d is not None
+    assert d.tittel.startswith("Høring: Statsbudsjettet 2026")
+    assert "?p=104908" in d.url
+
+
+def test_skriftlig_horing_merkes_som_det() -> None:
+    d = stortinget_api.normaliser_horing({**_HORING, "skriftlig": True})
+    assert d is not None
+    assert d.dokumenttype == "Skriftlig høring"
+
+
+def test_horing_sammendrag_har_komite_sted_og_frist() -> None:
+    """Sted og frist er det som gjør en høring handlingsrelevant."""
+    d = stortinget_api.normaliser_horing(_HORING)
+    assert d is not None
+    assert "Arbeids- og sosialkomiteen" in d.sammendrag
+    assert "Høringssal 1" in d.sammendrag
+    assert "Innspillsfrist" in d.sammendrag
+
+
+def test_horing_uten_tilknyttet_sak_hoppes_over() -> None:
+    assert stortinget_api.normaliser_horing({**_HORING, "horing_sak_info_liste": []}) is None
+    assert stortinget_api.normaliser_horing({"horing_sak_info_liste": []}) is None
+
+
+# ---------------------------------------------------------------------------
+# Foreldreløse dokumenter
+# ---------------------------------------------------------------------------
+def test_forsvunne_telles_for_api_kilder() -> None:
+    """Ekte ID-er skal aldri forsvinne. Gjør de det, har noe skiftet ID."""
+    kjente = {("stortinget_sak", "1"): "h1", ("stortinget_sak", "2"): "h2"}
+    diff = finn_nye([_dok("3")], {("test", "x"): "h"} | kjente)
+    # _dok bruker kilde="test", så stortinget_sak er ikke hentet denne runden
+    assert diff.forsvunne == 0, "kilder som ikke ble hentet skal ikke telles"
+
+
+def test_forsvunne_ignorerer_rullerende_rss() -> None:
+    """«Aktuelt» viser bare siste saker — eldre forsvinner naturlig ut av
+    feeden og skal ikke telles som tapt."""
+    gammel = Dokument(kilde="rss", kilde_id="a", tittel="A", id_er_syntetisk=True)
+    kjente = {("rss", "a"): innholdshash(gammel), ("rss", "b"): "borte"}
+    ny = Dokument(kilde="rss", kilde_id="a", tittel="A", id_er_syntetisk=True)
+    diff = finn_nye([ny], kjente)
+    assert diff.forsvunne == 0

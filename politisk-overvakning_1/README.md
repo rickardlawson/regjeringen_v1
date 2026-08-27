@@ -51,14 +51,14 @@ derfra, og RSS brukes bare til det APIet ikke dekker.
 
 | Kilde | Type | Dokumenter (2025–2026) |
 |---|---|---|
-| Saker | API | 655 |
-| Skriftlige spørsmål | API | 3 517 |
+| Saker | API | 665 |
+| Skriftlige spørsmål | API | 3 547 |
 | Spørretimespørsmål | API | 524 |
 | Interpellasjoner | API | 30 |
-| Høringer | RSS | 234 |
+| Høringer | API | 351 |
 | Aktuelt | RSS | 28 |
 
-Til sammen 4 988 dokumenter. Tilveksten er rundt 15 skriftlige spørsmål per
+Til sammen ~5 145 dokumenter. Tilveksten er rundt 15 skriftlige spørsmål per
 virkedag — lite nok til at hyppig polling er uproblematisk.
 
 ## Tre feller i datakildene
@@ -76,11 +76,11 @@ avgifts- og tollinntekter» som «Sakstype: Spørsmål». Her utledes typen fra
 `henvisning`, som er fasit: «Meld. St. 13 (2025-2026)» sier presist hva
 dokumentet er.
 
-**3. RSS mangler ID.** Stortingets feeder har tom `<guid>`, og `<link>` peker
-til samme oversiktsside for alle poster i feeden. Uten stabil ID må
-deduplisering gjøres på en innholdshash. Det er skjørt — endrer Stortinget ett
-komma, ser posten ny ut. Derfor merkes alle RSS-dokumenter med
-`id_er_syntetisk = TRUE`, så varslingslaget kan behandle dem forsiktigere.
+**3. RSS-feedene er ustabile med hensyn til `<guid>`.** Dette tok ned
+dedupliseringen i produksjon 27.08.2026 — se avsnittet under.
+
+Koden krever nå utfylt `<guid>`. Poster uten forkastes, og en feed helt uten
+guid får kilden til å feile. Stille degradering er verre enn en tydelig feil.
 
 ## Matching
 
@@ -142,7 +142,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 51 tester passerer
+- 59 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder

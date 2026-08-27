@@ -22,7 +22,7 @@ import requests
 
 from .kilder import RSS_KILDER, RssKilde
 from .modell import Dokument
-from .normalisering import rydd_tekst, syntetisk_id
+from .normalisering import rydd_tekst
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,21 @@ def parse_dato_rss(node: ET.Element) -> datetime | None:
 
 
 def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
-    """Parse RSS-XML til normaliserte dokumenter."""
+    """Parse RSS-XML til normaliserte dokumenter.
+
+    Krever at hver post har en utfylt <guid>. Det er en bevisst streng regel,
+    og den kommer av en konkret hendelse:
+
+    Koden falt tidligere tilbake på en innholdshash når <guid> manglet. Den
+    26.08.2026 leverte Stortingets feeder ingen guid, og 262 dokumenter fikk
+    hashede ID-er. Dagen etter leverte de samme feedene guid — og fordi
+    ID-ordningen dermed byttet, så alle 262 dokumentene nye ut på én gang.
+    Hadde varslingslaget vært i drift, ville hver bruker fått 262 duplikater.
+
+    En kilde som noen ganger har stabil ID og noen ganger ikke, er ikke egnet
+    som varslingskilde. Derfor: mangler guid, avvises posten heller enn å få
+    en ID som kan bytte ordning under føttene på oss.
+    """
     try:
         rot = ET.fromstring(xml)
     except ET.ParseError as exc:
@@ -76,42 +90,43 @@ def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
     poster = (kanal if kanal is not None else rot).findall("item")
 
     dokumenter: list[Dokument] = []
+    uten_guid = 0
     for post in poster:
         tittel = rydd_tekst(_tekst(post, "title"))
         if not tittel:
             continue
-        sammendrag = rydd_tekst(_tekst(post, "description"))
-        publisert = parse_dato_rss(post)
 
-        # Bruk guid hvis den finnes og har innhold — ellers hash innholdet.
         guid = _tekst(post, "guid")
-        if guid:
-            kilde_id, syntetisk = guid, False
-        else:
-            datostreng = publisert.date().isoformat() if publisert else ""
-            kilde_id = syntetisk_id(tittel, datostreng, sammendrag[:200])
-            syntetisk = True
+        if not guid:
+            uten_guid += 1
+            continue
 
         dokumenter.append(
             Dokument(
                 kilde=kilde.navn,
-                kilde_id=kilde_id,
+                kilde_id=guid,
                 kildenavn=kilde.kildenavn,
                 tittel=tittel,
-                sammendrag=sammendrag,
+                sammendrag=rydd_tekst(_tekst(post, "description")),
                 url=_tekst(post, "link"),
-                publisert=publisert,
-                id_er_syntetisk=syntetisk,
+                publisert=parse_dato_rss(post),
                 rådata={"kanal": kilde.kildenavn},
             )
         )
 
-    syntetiske = sum(1 for d in dokumenter if d.id_er_syntetisk)
-    if syntetiske:
-        logger.info(
-            "%s: %d dokumenter, %d uten stabil ID (hashet)",
-            kilde.navn, len(dokumenter), syntetiske,
+    if uten_guid:
+        logger.error(
+            "%s: %d av %d poster manglet <guid> og ble forkastet. Uten stabil "
+            "ID kan de ikke dedupliseres pålitelig.",
+            kilde.navn, uten_guid, len(poster),
         )
+    if poster and not dokumenter:
+        raise RssFeil(
+            f"{kilde.navn}: ingen poster hadde <guid> — kilden kan ikke brukes "
+            f"til varsling slik den er nå."
+        )
+
+    logger.info("%s: %d dokumenter", kilde.navn, len(dokumenter))
     return dokumenter
 
 
