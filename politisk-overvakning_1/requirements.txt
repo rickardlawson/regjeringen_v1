@@ -1,2 +1,6 @@
+# Låste versjoner. Uten pinning bygger Railway mot nyeste pakke — det er slik
+# en app som "ikke er rørt" plutselig slutter å virke.
 requests==2.33.1
 psycopg2-binary==2.9.12
+flask==3.1.3
+gunicorn==26.1.0

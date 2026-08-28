@@ -8,8 +8,8 @@ Erstatter den forsvunne `rss-daily`-appen som First House brukte.
 
 ## Status
 
-Innhentingslaget og matchingen er ferdig og testet mot ekte data.
-Varslingslaget (abonnement, e-post, webvisning) er ikke begynt.
+Innhenting, matching og varsling er ferdig og testet mot ekte data.
+Utsending står i konsollmodus til Resend-kontoen er på plass.
 
 ## Kom i gang
 
@@ -35,6 +35,14 @@ innhenting/
   diff.py             Hva er nytt siden sist
 matching/
   sporring.py         Stikkordsparsing: OR-lister og prefikssøk
+varsling/
+  epost.py            Resend, med konsollmodus som fungerer uten konto
+  maler.py            E-postmaler i First House sin form
+  utsending.py        Hvem skal ha hva, og hva er allerede sendt
+web/
+  app.py              Flask: innlogging, abonnement, arkivsøk
+  templates/          Tre skjermbilder
+send_varsler.py       CLI: send varsler (egen cron-jobb)
 db/
   skjema.sql          dokument + innhentingslogg
   lager.py            Pool, lagring, fulltekstsøk
@@ -142,7 +150,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 59 tester passerer
+- 83 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -242,3 +250,87 @@ python3 hent.py --sjekk-kilder
 
 Den rapporterer `OK` eller `BLOKKERT` for regjeringen.no, sammen med status for
 alle Stortinget-kildene og databasen.
+
+
+## Varslingslaget
+
+Midlertidig. Slettes når First House flyttes inn i Signalist; dokumentlageret
+og matchingen blir stående. Ingen fremmednøkler går fra `dokument` og ned hit,
+nettopp for at det skal kunne droppes rent.
+
+### Innlogging uten passord
+
+Brukeren skriver e-postadressen sin og får en engangslenke. Ingen passord
+lagres, så det finnes ingen passord å lekke. Tokenet ligger kun som hash i
+databasen, virker i 30 minutter, og kan brukes én gang.
+
+Tilgangsstyringen er domenet: alle med en `@firsthouse.no`-adresse kan
+registrere seg selv. Det finnes ingen brukerliste å vedlikeholde — en slik
+liste ville uansett vært utdatert på en måned.
+
+Innloggingsforsøk er ratebegrenset, ellers kunne hvem som helst fylt en
+kollegas innboks med lenker.
+
+### Duplikatvern i to lag
+
+Dette er det viktigste i hele varslingsdelen.
+
+1. **Innhentingen** avgjør hva som er NYTT (diff mot forrige kjøring).
+2. **`varsel_sendt`** avgjør hva som er SENDT.
+
+Primærnøkkelen `(abonnement_id, dokument_id)` gjør det fysisk umulig å sende
+samme dokument to ganger til samme abonnement — uansett hva som skjer i
+diff-logikken.
+
+Testet mot det verst tenkelige: alle 5 145 dokumenter ble markert som nettopp
+registrert, altså akkurat 27.08-hendelsen i stor skala. Resultat:
+`0 varsler, 0 velkomstmailer, 1 uten nye treff`. Den gamle løsningen hadde
+bare lag 1, og sendte «Statsbudsjettet 2026» tre ganger i én e-post.
+
+Kvittering skjer **etter** vellykket sending. Feiler e-posten, forsøkes
+varselet på nytt neste runde i stedet for å tapes i stillhet.
+
+### Velkomstmail
+
+Et nytt abonnement på «Havbruk OR Fiskeri» treffer 58 saker i inneværende
+sesjon. Velkomstmailen **viser** de 15 nyeste, men **kvitterer ut alle 58**.
+
+Uten det siste ville de 43 andre gått ut som «nye varsler» i de neste
+kjøringene — tre e-poster på rad, fulle av saker fra i vår. Semantikken skal
+være: her er det som finnes nå, resten ligger i arkivet, fremover hører du
+bare om det som faktisk er nytt.
+
+### E-post uten Resend-konto
+
+`EPOST_LEVERANDOR=konsoll` skriver e-posten til loggen i stedet for å sende.
+Standard, så et feilkonfigurert miljø aldri sender ut noe uventet.
+
+Det er ikke bare for testing: da dette ble bygget hadde vi ikke tilgang til
+Resend-kontoen som DNS-postene for `oppdatert.firsthouse.no` peker mot, fordi
+personen som satte den opp hadde sluttet. Hele laget kan bygges, testes og
+gjennomgås i konsollmodus, og byttes med én miljøvariabel når kontoen er på
+plass.
+
+Webgrensesnittet viser en synlig stripe til brukerne så lenge utsending ikke
+er aktiv — abonnementene lagres som normalt, og sendes når den slås på.
+
+### Deploy
+
+Tre tjenester mot samme Postgres:
+
+| Tjeneste | Dockerfile | Cron | Rolle |
+|---|---|---|---|
+| innhenting | `Dockerfile` | `0 5,11 * * 1-5` | henter fra Stortinget |
+| varsling | `Dockerfile` | `0 6,12 * * 1-5` | sender e-post |
+| web | `Dockerfile.web` | — | grensesnittet |
+
+Webtjenesten må peke på `railway.web.toml` under Settings → Config-as-code.
+Uten det bygger den cron-jobbens image, starter `hent.py`, avslutter etter tre
+sekunder — og svarer aldri.
+
+Varslingstjenesten bruker samme image som innhentingen, men med
+start-kommandoen `python3 send_varsler.py`. Den kjører en time etter, så det
+alltid finnes ferske data å varsle om.
+
+Webtjenesten trenger `SECRET_KEY` og `BASIS_URL`, og et eget domene —
+innloggingslenkene peker dit.
