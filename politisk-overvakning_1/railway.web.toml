@@ -1,0 +1,22 @@
+# Konfigurasjon for WEBTJENESTEN.
+#
+# Railway leser railway.toml som standard, og den peker på cron-jobbens
+# Dockerfile. Webtjenesten må derfor peke hit i stedet:
+#   Settings → Config-as-code → railway.web.toml
+#
+# Uten det bygger webtjenesten cron-jobbens image, starter hent.py, avslutter
+# etter tre sekunder — og du får en webtjeneste som aldri svarer.
+
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile.web"
+
+[deploy]
+# Dette ER en webtjeneste, i motsetning til de to andre. Den skal kjøre hele
+# tiden, og skal restartes hvis den faller.
+restartPolicyType = "on_failure"
+healthcheckPath = "/helse"
+healthcheckTimeout = 30
+
+# MERK: sett ALDRI Cron Schedule på denne tjenesten. Da ville Railway startet
+# og stoppet webserveren på timeplan.

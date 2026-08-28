@@ -55,6 +55,14 @@ def _for_mange_forsok(nokkel: str) -> bool:
     return len(tidligere) >= _MAKS_FORSOK
 
 
+def _domenetekst() -> str:
+    """Hvilke domener som slipper inn, til visning i skjemaet."""
+    d = brukere.tillatte_domener()
+    if len(d) == 1:
+        return f"Bare @{d[0]}-adresser har tilgang"
+    return "Adresser på " + " eller ".join(f"@{x}" for x in d) + " har tilgang"
+
+
 def krev_innlogging(f):
     @wraps(f)
     def innpakket(*a, **kw):
@@ -80,12 +88,12 @@ def logg_inn():
         epost_inn = (request.form.get("epost") or "").strip()
         if _for_mange_forsok(epost_inn.lower() or request.remote_addr or "?"):
             flash("For mange forsøk. Vent et kvarter og prøv igjen.", "feil")
-            return render_template("logg_inn.html")
+            return render_template("logg_inn.html", domenetekst=_domenetekst())
         try:
             token, adresse = brukere.lag_innloggingslenke(epost_inn)
         except brukere.UgyldigEpost as exc:
             flash(str(exc), "feil")
-            return render_template("logg_inn.html")
+            return render_template("logg_inn.html", domenetekst=_domenetekst())
 
         basis = os.environ.get("BASIS_URL", request.url_root).rstrip("/")
         lenke = f"{basis}{url_for('lenke_innlogging')}?token={token}"
@@ -95,10 +103,10 @@ def logg_inn():
         except epostmodul.EpostFeil as exc:
             logger.error("Innloggingsmail til %s feilet: %s", adresse, exc)
             flash("Klarte ikke sende e-posten. Prøv igjen om litt.", "feil")
-            return render_template("logg_inn.html")
+            return render_template("logg_inn.html", domenetekst=_domenetekst())
         return render_template("lenke_sendt.html", epost=adresse)
 
-    return render_template("logg_inn.html")
+    return render_template("logg_inn.html", domenetekst=_domenetekst())
 
 
 @app.route("/lenke")

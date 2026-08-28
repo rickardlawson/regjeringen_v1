@@ -150,7 +150,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 83 tester passerer
+- 85 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -264,9 +264,18 @@ Brukeren skriver e-postadressen sin og får en engangslenke. Ingen passord
 lagres, så det finnes ingen passord å lekke. Tokenet ligger kun som hash i
 databasen, virker i 30 minutter, og kan brukes én gang.
 
-Tilgangsstyringen er domenet: alle med en `@firsthouse.no`-adresse kan
+Tilgangsstyringen er domenet: alle med en adresse på et tillatt domene kan
 registrere seg selv. Det finnes ingen brukerliste å vedlikeholde — en slik
 liste ville uansett vært utdatert på en måned.
+
+Standard er `firsthouse.no` og `uppercase.no`, overstyrbart med
+`TILLATTE_DOMENER`. Uppercase er med fordi vi drifter tjenesten og må kunne
+teste og feilsøke. Ingen ser andres abonnement, så det gir ikke innsyn i First
+House sine overvåkninger — men **driftstilgangen hører hjemme i
+databehandleravtalen**.
+
+Domenet sammenlignes eksakt, ikke med `endswith`:
+`firsthouse.no.angriper.com` slipper ikke gjennom.
 
 Innloggingsforsøk er ratebegrenset, ellers kunne hvem som helst fylt en
 kollegas innboks med lenker.
@@ -334,3 +343,27 @@ alltid finnes ferske data å varsle om.
 
 Webtjenesten trenger `SECRET_KEY` og `BASIS_URL`, og et eget domene —
 innloggingslenkene peker dit.
+
+
+## Railway-oppsett
+
+Config as Code (`railway.toml`) ble deprecated 28.08.2026 og kan ikke tas i
+bruk av nye tjenester. Erstatningen krever TypeScript og Railways npm-SDK, som
+er feil pris for et Python-prosjekt som skal slettes. Alt settes derfor i
+dashbordet — og dokumenteres her, siden det ikke lenger er versjonert.
+
+**Felles for alle tre:** Root Directory `politisk-overvakning_1`,
+`DATABASE_URL = ${{Postgres.DATABASE_URL}}`.
+
+| | innhenting | varsling | web |
+|---|---|---|---|
+| Dockerfile Path | `Dockerfile` | `Dockerfile` | `Dockerfile.web` |
+| Start Command | (fra Dockerfile) | `python3 send_varsler.py` | (fra Dockerfile) |
+| Cron Schedule | `0 5,11 * * 1-5` | `0 6,12 * * 1-5` | (ingen) |
+| Healthcheck | — | — | `/helse` |
+
+Webtjenesten trenger i tillegg `SECRET_KEY`, `BASIS_URL` og et generert domene.
+
+**Porten:** Railway setter `PORT=8080`, men et generert domene låses ofte til
+5000. Stemmer de ikke overens, får du «Application failed to respond» selv om
+appen kjører fint. Rett porten under Networking, ikke i koden.

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,29 +20,59 @@ from matching.sporring import bygg_tsquery
 logger = logging.getLogger(__name__)
 
 LENKE_LEVETID = timedelta(minutes=30)
-TILLATT_DOMENE = "firsthouse.no"
+
+# Domener som får registrere seg. Settes med TILLATTE_DOMENER, komma-separert.
+#
+# uppercase.no er med fordi Uppercase drifter tjenesten og må kunne teste,
+# feilsøke og vise den fram. Merk at ingen ser andres abonnement uansett —
+# hvilke temaer en rådgiver overvåker kan røpe hvilken kunde han jobber for,
+# og det er First House sine data. Driftstilgangen bør stå i
+# databehandleravtalen.
+STANDARD_DOMENER = ("firsthouse.no", "uppercase.no")
 
 
 class UgyldigEpost(ValueError):
-    """E-postadressen er ikke innenfor det tillatte domenet."""
+    """E-postadressen er ikke innenfor et tillatt domene."""
+
+
+def tillatte_domener() -> tuple[str, ...]:
+    rå = os.environ.get("TILLATTE_DOMENER", "")
+    if not rå.strip():
+        return STANDARD_DOMENER
+    domener = tuple(
+        d.strip().lower().lstrip("@") for d in rå.split(",") if d.strip()
+    )
+    return domener or STANDARD_DOMENER
 
 
 # ── Brukere ──────────────────────────────────────────────────────────────
 def normaliser_epost(epost: str) -> str:
-    """Trim, gjør om til små bokstaver, og krev riktig domene.
+    """Trim, gjør om til små bokstaver, og krev et tillatt domene.
 
-    Tilgangsstyringen ligger her og ingen andre steder. Alle med en
-    @firsthouse.no-adresse skal kunne registrere seg selv — det finnes ingen
-    liste over hvem som skal ha tilgang, og å vedlikeholde en slik liste
-    manuelt ville uansett blitt utdatert på en måned.
+    Tilgangsstyringen ligger her og ingen andre steder. Alle med en adresse på
+    et tillatt domene kan registrere seg selv — det finnes ingen liste over
+    hvem som skal ha tilgang, og en slik liste ville uansett vært utdatert på
+    en måned.
+
+    Domenet sammenlignes eksakt, ikke med endswith: `firsthouse.no.angriper.com`
+    skal ikke slippe gjennom.
     """
     e = (epost or "").strip().lower()
-    if "@" not in e or not e.split("@")[-1] == TILLATT_DOMENE:
-        raise UgyldigEpost(f"Bare @{TILLATT_DOMENE}-adresser har tilgang")
-    lokal = e.split("@")[0]
+    if "@" not in e:
+        raise UgyldigEpost(_avvisningstekst())
+    lokal, _, domene = e.rpartition("@")
+    if domene not in tillatte_domener():
+        raise UgyldigEpost(_avvisningstekst())
     if not lokal or len(e) > 254:
         raise UgyldigEpost("Ugyldig e-postadresse")
     return e
+
+
+def _avvisningstekst() -> str:
+    d = tillatte_domener()
+    if len(d) == 1:
+        return f"Bare @{d[0]}-adresser har tilgang"
+    return "Bare adresser på " + " eller ".join(f"@{x}" for x in d) + " har tilgang"
 
 
 def finn_eller_opprett_bruker(epost: str) -> int:

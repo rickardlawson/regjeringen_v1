@@ -14,7 +14,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from db.brukere import UgyldigEpost, normaliser_epost  # noqa: E402
+from db.brukere import (  # noqa: E402
+    STANDARD_DOMENER, UgyldigEpost, normaliser_epost, tillatte_domener,
+)
 from varsling import maler  # noqa: E402
 from varsling.epost import Epost, EpostFeil, er_konfigurert, send  # noqa: E402
 
@@ -35,7 +37,6 @@ def test_gyldige_adresser_normaliseres(inn: str, ut: str) -> None:
 @pytest.mark.parametrize(
     "epost",
     [
-        "rickard@uppercase.no",
         "noen@gmail.com",
         "angriper@firsthouse.no.evil.com",
         "@firsthouse.no",
@@ -52,6 +53,30 @@ def test_adresser_utenfor_domenet_avvises(epost) -> None:
     """
     with pytest.raises(UgyldigEpost):
         normaliser_epost(epost)
+
+
+def test_uppercase_slipper_inn_som_driftsansvarlig() -> None:
+    """Uppercase drifter tjenesten og må kunne teste og feilsøke.
+
+    Ingen ser andres abonnement uansett, så det gir ikke innsyn i First House
+    sine overvåkninger — men driftstilgangen bør stå i databehandleravtalen.
+    """
+    assert normaliser_epost("rickard@uppercase.no") == "rickard@uppercase.no"
+    assert "uppercase.no" in STANDARD_DOMENER
+
+
+def test_domener_kan_settes_med_miljovariabel(monkeypatch) -> None:
+    monkeypatch.setenv("TILLATTE_DOMENER", "kunde.no, @annen.no")
+    assert tillatte_domener() == ("kunde.no", "annen.no")
+    assert normaliser_epost("a@kunde.no") == "a@kunde.no"
+    with pytest.raises(UgyldigEpost):
+        normaliser_epost("a@firsthouse.no")
+
+
+def test_tom_miljovariabel_faller_tilbake_til_standard(monkeypatch) -> None:
+    """En tom variabel skal ikke låse alle ute."""
+    monkeypatch.setenv("TILLATTE_DOMENER", "   ")
+    assert tillatte_domener() == STANDARD_DOMENER
 
 
 # ── E-postleverandør ─────────────────────────────────────────────────────
