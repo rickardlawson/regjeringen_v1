@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block tittel %}{{ kode }}{% endblock %}
+{% block innhold %}
+<div style="max-width:420px;margin:60px auto;text-align:center">
+  <h1>{{ kode }}</h1>
+  <p class="ingress">{{ melding }}</p>
+  <a class="knapp sekundar" href="{{ url_for('mine_varsler') }}">Til mine varsler</a>
+</div>
+{% endblock %}

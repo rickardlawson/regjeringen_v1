@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block tittel %}Politisk overvåkning{% endblock %} · First House</title>
+<style>
+  :root {
+    --rod: #c8102e; --blekk: #1a1a1a; --gra: #6b6b6b;
+    --lys: #f7f7f5; --kant: #e2e2e0; --hvit: #fff;
+    --ok: #1a7f4b; --ok-bg: #eaf6ef; --feil-bg: #fdeced;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--lys); color: var(--blekk);
+    font: 16px/1.6 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  a { color: var(--blekk); }
+  .topp { background: var(--hvit); border-bottom: 1px solid var(--kant); }
+  .topp-inner {
+    max-width: 940px; margin: 0 auto; padding: 20px 20px 0;
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 12px;
+  }
+  .merke {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 26px; letter-spacing: 3px; line-height: 1; text-decoration: none;
+  }
+  .eyebrow {
+    font-size: 10px; letter-spacing: 1.6px; color: var(--gra);
+    margin-top: 6px; text-transform: uppercase;
+  }
+  .konto { font-size: 13px; color: var(--gra); }
+  .konto button {
+    background: none; border: 0; color: var(--gra); cursor: pointer;
+    font: inherit; text-decoration: underline; padding: 0;
+  }
+  nav { max-width: 940px; margin: 0 auto; padding: 16px 20px 0; display: flex; gap: 26px; }
+  nav a {
+    text-decoration: none; font-size: 14px; color: var(--gra);
+    padding-bottom: 12px; border-bottom: 2px solid transparent;
+  }
+  nav a.aktiv { color: var(--blekk); font-weight: 600; border-bottom-color: var(--rod); }
+  main { max-width: 940px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 25px; margin: 0 0 6px; letter-spacing: -0.2px; }
+  .ingress { color: var(--gra); margin: 0 0 28px; font-size: 15px; }
+  .kort {
+    background: var(--hvit); border: 1px solid var(--kant);
+    border-left: 3px solid var(--rod); border-radius: 3px;
+    padding: 18px 20px; margin-bottom: 14px;
+  }
+  .kort h3 { margin: 0 0 6px; font-size: 16px; line-height: 1.4; }
+  .kort h3 a { text-decoration: none; }
+  .kort h3 a:hover { text-decoration: underline; }
+  .meta { font-size: 12px; color: var(--gra); margin-bottom: 8px; }
+  .aktorer { font-size: 13px; margin-bottom: 8px; }
+  .utdrag { font-size: 14px; color: #333; }
+  .rad { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  input[type=text], input[type=email] {
+    width: 100%; padding: 12px 14px; font: inherit;
+    border: 1px solid var(--kant); border-radius: 3px; background: var(--hvit);
+  }
+  input:focus-visible, button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--rod); outline-offset: 2px;
+  }
+  .knapp {
+    display: inline-block; background: var(--rod); color: #fff; border: 0;
+    padding: 12px 22px; border-radius: 3px; font: inherit; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+  }
+  .knapp.sekundar { background: var(--hvit); color: var(--blekk); border: 1px solid var(--kant); }
+  .knapp.fare { background: none; color: var(--gra); border: 0; padding: 6px 0;
+                text-decoration: underline; font-weight: 400; font-size: 13px; }
+  .melding { padding: 12px 16px; border-radius: 3px; margin-bottom: 20px; font-size: 14px; }
+  .melding.ok { background: var(--ok-bg); color: var(--ok); }
+  .melding.feil { background: var(--feil-bg); color: var(--rod); }
+  .tom {
+    background: var(--hvit); border: 1px dashed var(--kant); border-radius: 3px;
+    padding: 40px 24px; text-align: center; color: var(--gra);
+  }
+  .tom p { margin: 0 0 18px; }
+  .telling { font-size: 14px; color: var(--gra); margin-bottom: 18px; }
+  .telling strong { color: var(--blekk); font-size: 17px; }
+  .varsel-stripe {
+    background: #fff8e6; border: 1px solid #f0dca8; border-radius: 3px;
+    padding: 12px 16px; margin-bottom: 24px; font-size: 13px;
+  }
+  .knapper { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+  label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .hjelp { font-size: 13px; color: var(--gra); margin-top: 8px; }
+  @media (max-width: 560px) {
+    .rad { flex-direction: column; align-items: flex-start; }
+    nav { gap: 18px; }
+  }
+</style>
+</head>
+<body>
+<header class="topp">
+  <div class="topp-inner">
+    <div>
+      <a class="merke" href="{{ url_for('mine_varsler') }}">FIRST HOUSE</a>
+      <div class="eyebrow">Politisk overvåkning</div>
+    </div>
+    {% if session.bruker_id %}
+    <div class="konto">
+      {{ bruker.epost if bruker else '' }}
+      <form method="post" action="{{ url_for('logg_ut') }}" style="display:inline">
+        <button type="submit">Logg ut</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+  {% if session.bruker_id %}
+  <nav>
+    <a href="{{ url_for('mine_varsler') }}" {% if side=='varsler' %}class="aktiv"{% endif %}>Mine varsler</a>
+    <a href="{{ url_for('nytt_varsel') }}" {% if side=='nytt' %}class="aktiv"{% endif %}>Nytt varsel</a>
+    <a href="{{ url_for('sok') }}" {% if side=='sok' %}class="aktiv"{% endif %}>Søk i arkivet</a>
+  </nav>
+  {% endif %}
+</header>
+<main>
+  {% with meldinger = get_flashed_messages(with_categories=true) %}
+    {% for kategori, melding in meldinger %}
+      <div class="melding {{ kategori }}">{{ melding }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block innhold %}{% endblock %}
+</main>
+</body>
+</html>

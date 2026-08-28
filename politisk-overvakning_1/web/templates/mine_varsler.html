@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% set side = 'varsler' %}
+{% block tittel %}Mine varsler{% endblock %}
+{% block innhold %}
+<h1>Mine varsler</h1>
+<p class="ingress">Du får e-post når det kommer nye saker på Stortinget som
+  treffer stikkordene dine.</p>
+
+{% if not epost_aktiv %}
+<div class="varsel-stripe">
+  <strong>Utsending er ikke aktiv ennå.</strong>
+  Varsler skrives til loggen i stedet for å sendes. Abonnementene dine lagres
+  som normalt, og alt du har registrert sendes når utsendingen slås på.
+</div>
+{% endif %}
+
+{% if abonnementer %}
+  {% for ab in abonnementer %}
+  <div class="kort">
+    <div class="rad">
+      <div>
+        <h3>{{ ab.visning }}</h3>
+        <div class="meta">
+          {{ ab.treff_totalt }} treff i inneværende sesjon ·
+          {{ ab.antall_sendt }} varslet
+          {%- if not ab.velkomst_sendt %} · venter på oppstartsmail{% endif %}
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('slett', abonnement_id=ab.id) }}"
+            onsubmit="return confirm('Slå av varselet for «{{ ab.visning }}»?')">
+        <button class="knapp fare" type="submit">Slå av</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="knapper">
+    <a class="knapp" href="{{ url_for('nytt_varsel') }}">Nytt varsel</a>
+  </div>
+{% else %}
+<div class="tom">
+  <p>Du har ingen varsler ennå.<br>
+     Legg inn et stikkord, så sier vi fra når det skjer noe på Stortinget.</p>
+  <a class="knapp" href="{{ url_for('nytt_varsel') }}">Lag ditt første varsel</a>
+</div>
+{% endif %}
+{% endblock %}

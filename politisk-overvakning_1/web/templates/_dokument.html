@@ -1,0 +1,19 @@
+{% macro kort(d) %}
+<div class="kort">
+  <h3>{% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">{{ d.tittel }}</a>{% else %}{{ d.tittel }}{% endif %}</h3>
+  <div class="meta">
+    {{ d.kildenavn }}{% if d.dokumenttype %} · {{ d.dokumenttype }}{% endif %}
+    {%- if d.publisert %} · {{ d.publisert.strftime('%d.%m.%Y') }}{% endif %}
+    {%- if d.status %} · {{ d.status }}{% endif %}
+  </div>
+  {% if d.avsender %}
+  <div class="aktorer">
+    {{ d.avsender }}{% if d.parti %} ({{ d.parti }}){% endif %}
+    {%- if d.mottaker %} → {{ d.mottaker }}{% endif %}
+  </div>
+  {% endif %}
+  {% if d.sammendrag %}
+  <div class="utdrag">{{ d.sammendrag[:300] }}{% if d.sammendrag|length > 300 %}…{% endif %}</div>
+  {% endif %}
+</div>
+{% endmacro %}

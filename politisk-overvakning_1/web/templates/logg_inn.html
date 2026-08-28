@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block tittel %}Logg inn{% endblock %}
+{% block innhold %}
+<div style="max-width:420px;margin:40px auto">
+  <h1>Logg inn</h1>
+  <p class="ingress">Skriv inn e-postadressen din, så sender vi en innloggingslenke.
+    Du trenger ikke passord.</p>
+  <form method="post">
+    <label for="epost">E-postadresse</label>
+    <input type="email" id="epost" name="epost" required autofocus
+           placeholder="navn@firsthouse.no" autocomplete="email">
+    <div class="hjelp">Bare @firsthouse.no-adresser har tilgang.
+      Første gang du logger inn, opprettes kontoen automatisk.</div>
+    <div class="knapper"><button class="knapp" type="submit">Send meg en lenke</button></div>
+  </form>
+</div>
+{% endblock %}

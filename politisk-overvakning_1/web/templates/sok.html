@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "_dokument.html" import kort %}
+{% set side = 'sok' %}
+{% block tittel %}Søk i arkivet{% endblock %}
+{% block innhold %}
+<h1>Søk i arkivet</h1>
+<p class="ingress">Alle saker, spørsmål, interpellasjoner og høringer fra
+  Stortinget i inneværende sesjon.</p>
+
+<form method="get">
+  <input type="text" name="q" value="{{ q }}" placeholder="Havvind OR Energi" autofocus>
+  <div class="knapper"><button class="knapp" type="submit">Søk</button></div>
+</form>
+
+{% if antall is not none %}
+<hr style="border:0;border-top:1px solid var(--kant);margin:32px 0 24px">
+  {% if treff %}
+  <div class="telling"><strong>{{ antall }}</strong> treff
+    {% if antall > treff|length %}— viser de {{ treff|length }} mest relevante{% endif %}
+  </div>
+  {% for d in treff %}{{ kort(d) }}{% endfor %}
+  {% else %}
+  <div class="tom"><p>Ingen treff på «{{ q }}».<br>
+    Prøv et bredere stikkord, eller flere skilt med OR.</p></div>
+  {% endif %}
+{% endif %}
+{% endblock %}

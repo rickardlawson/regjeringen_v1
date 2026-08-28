@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_dokument.html" import kort %}
+{% set side = 'nytt' %}
+{% block tittel %}Nytt varsel{% endblock %}
+{% block innhold %}
+<h1>Nytt varsel</h1>
+<p class="ingress">Skriv ett eller flere stikkord. Se hvor mange treff du får
+  før du lagrer.</p>
+
+<form method="post">
+  <label for="stikkord">Stikkord</label>
+  <input type="text" id="stikkord" name="stikkord" value="{{ stikkord }}"
+         placeholder="Havbruk OR Fiskeri" autofocus>
+  <div class="hjelp">
+    Flere stikkord skilles med <strong>OR</strong>, komma eller «eller» —
+    <em>Havbruk OR Fiskeri</em> gir treff på begge.
+    Vi finner også sammensetninger: «havbruk» treffer havbruksnæringen,
+    Havbruksfondet og havbruksmeldingen.
+  </div>
+  <div class="knapper">
+    <button class="knapp sekundar" type="submit" name="handling" value="vis">Vis treff</button>
+    {% if stikkord and antall %}
+    <button class="knapp" type="submit" name="handling" value="lagre">Lagre varselet</button>
+    {% endif %}
+  </div>
+</form>
+
+{% if antall is not none %}
+<hr style="border:0;border-top:1px solid var(--kant);margin:32px 0 24px">
+  {% if antall %}
+  <div class="telling"><strong>{{ antall }}</strong> treff i inneværende sesjon.
+    {% if antall > 60 %}Det blir en del e-post — vurder å snevre inn.{% endif %}
+  </div>
+  {% for d in forhandsvisning %}{{ kort(d) }}{% endfor %}
+  {% if antall > forhandsvisning|length %}
+  <p class="hjelp">Viser de {{ forhandsvisning|length }} nyeste.
+    <a href="{{ url_for('sok', q=stikkord) }}">Se alle i arkivet</a>.</p>
+  {% endif %}
+  {% else %}
+  <div class="tom"><p>Ingen treff på «{{ stikkord }}» ennå.<br>
+    Du kan lagre varselet likevel — da sier vi fra når noe dukker opp.</p>
+    <form method="post">
+      <input type="hidden" name="stikkord" value="{{ stikkord }}">
+      <button class="knapp" type="submit" name="handling" value="lagre">Lagre varselet</button>
+    </form>
+  </div>
+  {% endif %}
+{% endif %}
+{% endblock %}
