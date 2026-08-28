@@ -150,7 +150,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 85 tester passerer
+- 86 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -367,3 +367,10 @@ Webtjenesten trenger i tillegg `SECRET_KEY`, `BASIS_URL` og et generert domene.
 **Porten:** Railway setter `PORT=8080`, men et generert domene låses ofte til
 5000. Stemmer de ikke overens, får du «Application failed to respond» selv om
 appen kjører fint. Rett porten under Networking, ikke i koden.
+
+**Logging under gunicorn:** `logging.basicConfig` må stå på modulnivå i
+`web/app.py`, ikke inne i `if __name__ == "__main__"`. Under gunicorn er
+`__name__` ikke `"__main__"`, så oppsettet kjører aldri — og uten handler
+dropper Python alt under WARNING. Det gjør appen blind: både
+konsoll-e-postene og tracebackene fra 500-handleren forsvinner i stillhet.
+Dette traff i produksjon 28.08.2026.

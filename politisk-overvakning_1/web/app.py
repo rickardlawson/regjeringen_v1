@@ -29,6 +29,17 @@ from varsling import maler
 
 logger = logging.getLogger(__name__)
 
+# Logging må settes opp ved IMPORT, ikke inne i __main__.
+#
+# Under gunicorn er __name__ ikke "__main__", så en basicConfig der nede
+# kjører aldri. Uten handler dropper Python alt under WARNING — og da
+# forsvinner både konsoll-e-postene og tracebackene fra 500-handleren i
+# stillhet. Appen ser ut til å virke, men er blind.
+logging.basicConfig(
+    level=os.environ.get("LOGGNIVA", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
@@ -229,6 +240,5 @@ def serverfeil(e):
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
     lager.init_skjema()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

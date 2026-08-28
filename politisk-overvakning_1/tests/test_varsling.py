@@ -252,3 +252,29 @@ def test_ugyldig_stikkord_stopper_ikke_de_andre() -> None:
 
     assert res.feilet == 1, "det ugyldige abonnementet skal telles som feilet"
     assert res.velkomster == 1, "det gyldige skal gå gjennom likevel"
+
+
+# ── Logging ──────────────────────────────────────────────────────────────
+def test_web_konfigurerer_logging_ved_import() -> None:
+    """Logging må settes opp ved import, ikke inne i __main__.
+
+    Under gunicorn er __name__ ikke "__main__", så en basicConfig der nede
+    kjører aldri. Uten handler dropper Python alt under WARNING — og da
+    forsvinner både konsoll-e-postene og tracebackene fra 500-handleren i
+    stillhet. Appen ser ut til å virke, men er blind.
+
+    Dette traff i produksjon: innloggingslenken kom aldri i Railway-loggen,
+    og en skjult 500-feil ble først synlig etter at loggingen ble fikset.
+    """
+    import logging as _logging
+    from pathlib import Path
+
+    kilde = (Path(__file__).resolve().parents[1] / "web" / "app.py").read_text(
+        encoding="utf-8"
+    )
+    hoveddel, _, main_blokk = kilde.partition('if __name__ == "__main__":')
+    assert "logging.basicConfig" in hoveddel, "basicConfig må stå på modulnivå"
+    assert "logging.basicConfig" not in main_blokk, "ikke bare i __main__"
+
+    import web.app  # noqa: F401  — importen skal ha satt opp en handler
+    assert _logging.getLogger().handlers, "rot-loggeren mangler handler"
