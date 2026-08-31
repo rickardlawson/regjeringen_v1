@@ -64,9 +64,10 @@ derfra, og RSS brukes bare til det APIet ikke dekker.
 | Spørretimespørsmål | API | 524 |
 | Interpellasjoner | API | 30 |
 | Høringer | API | 351 |
-| Aktuelt | RSS | 28 |
+| Aktuelt | RSS | 30 |
+| Regjeringen.no | RSS | 98 |
 
-Til sammen ~5 145 dokumenter. Tilveksten er rundt 15 skriftlige spørsmål per
+Til sammen ~5 280 dokumenter. Tilveksten er rundt 15 skriftlige spørsmål per
 virkedag — lite nok til at hyppig polling er uproblematisk.
 
 ## Tre feller i datakildene
@@ -150,7 +151,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 86 tester passerer
+- 88 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -160,14 +161,6 @@ før den når databasen.
   normalt søkeresultat; tabellen står urørt
 
 ## Åpne punkter
-
-**regjeringen.no er ikke aktivert.** Feeden fra den gamle løsningen
-(`id=2581966`) er regjeringen.no sin feed-bygger. Alle URL-varianter svarte 403
-med Cloudflare-utfordring fra utviklingsmiljøet. **Må testes fra selve
-Railway-containeren før det loves til First House.** Er den blokkert også
-derfra, er alternativene å be Departementenes sikkerhets- og serviceorganisasjon
-om tilgang, eller å droppe kilden — Stortinget dekker det meste av det samme
-stoffet når saker først er fremmet.
 
 **Dyplenker for spørsmål** bruker mønsteret `?qid=<id>`. Sidene svarer 200, men
 rendres klientside, så innholdet lot seg ikke verifisere programmatisk. Bør
@@ -374,3 +367,36 @@ appen kjører fint. Rett porten under Networking, ikke i koden.
 dropper Python alt under WARNING. Det gjør appen blind: både
 konsoll-e-postene og tracebackene fra 500-handleren forsvinner i stillhet.
 Dette traff i produksjon 28.08.2026.
+
+
+## regjeringen.no — URL-fella
+
+Kilden så blokkert ut i flere dager. Den var bare feiladressert.
+
+Den gamle løsningen brukte spørringsparameter:
+
+```
+https://www.regjeringen.no/no/rss/Rss/?id=2581966     → HTTP 404
+```
+
+Riktig format i dag er sti-segment:
+
+```
+https://www.regjeringen.no/no/rss/Rss/2581966/        → HTTP 200, 98 items
+```
+
+Det som villedet oss: vanlige HTML-sider på regjeringen.no ligger bak
+Cloudflare og svarer 403 med utfordringsside. RSS-endepunktet gjør ikke det —
+det svarte 404 helt uten Cloudflare. Forskjellen mellom 403-med-Cloudflare og
+404-uten er hele diagnosen, og den var lett å overse fordi begge ser ut som
+«kommer ikke gjennom».
+
+Feeden er god: 98 saker, alle med ekte numerisk `<guid>`, ordentlig `pubDate`
+og dyplenker. Den dekker det Stortinget ikke har — ministerbesøk,
+departementsnyheter, taler og kalenderoppføringer, og saker før de fremmes for
+Stortinget.
+
+Feeden lar seg ikke filtrere på departement eller tema via URL-parametere;
+filtrene på regjeringen.no sin byggerside genererer nye feed-ID-er. Det gjør
+ingenting — vi filtrerer uansett på vår side med brukerens stikkord, og da
+oppfører kilden seg likt som alle de andre.

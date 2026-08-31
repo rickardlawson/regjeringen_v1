@@ -83,17 +83,28 @@ class RssKilde:
 # delmengder av data vi allerede henter strukturert via APIet — å abonnere på
 # dem i tillegg ville bare gitt duplikater med dårligere metadata.
 #
-# Alt som ligger her har syntetiske ID-er og er derfor mindre pålitelig
-# deduplisert enn API-kildene. Finnes noe i APIet, hent det derfra.
+# Alt som ligger her må ha stabil <guid>. Se rss.py for hvorfor.
 RSS_KILDER: tuple[RssKilde, ...] = (
     RssKilde(
         navn="stortinget_aktuelt",
         kildenavn="Stortinget: Aktuelt",
         url=f"{RSS_BASE}/Aktuelt-saker/",
     ),
+    # regjeringen.no — pressemeldinger, nyheter, taler og kalender fra
+    # departementene. Dekker det Stortinget IKKE har: ministerbesøk,
+    # departementsnyheter og saker før de fremmes for Stortinget.
+    #
+    # URL-formatet er en felle. Den gamle løsningen brukte
+    # `/no/rss/Rss/?id=2581966` — spørringsparameter — og det gir i dag 404.
+    # Riktig format er sti-segment: `/no/rss/Rss/2581966/`. Det var derfor
+    # kilden så blokkert ut. Vanlige HTML-sider på regjeringen.no ligger
+    # bak Cloudflare og svarer 403, men RSS-endepunktet er åpent.
+    RssKilde(
+        navn="regjeringen",
+        kildenavn="Regjeringen.no",
+        url="https://www.regjeringen.no/no/rss/Rss/2581966/",
+    ),
 )
 
-# regjeringen.no ligger bak Cloudflare og svarte 403 under uttesting fra
-# utviklingsmiljøet. Feeden må verifiseres fra selve driftsmiljøet før den
-# aktiveres. Se README, avsnittet «Åpne punkter».
-REGJERINGEN_RSS_URL = "https://www.regjeringen.no/no/rss/Rss/?id=2581966"
+# Beholdt for kildesjekken (--sjekk-kilder), som tester denne eksplisitt.
+REGJERINGEN_RSS_URL = "https://www.regjeringen.no/no/rss/Rss/2581966/"

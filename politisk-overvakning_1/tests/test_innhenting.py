@@ -369,3 +369,51 @@ def test_forsvunne_ignorerer_rullerende_rss() -> None:
     ny = Dokument(kilde="rss", kilde_id="a", tittel="A", id_er_syntetisk=True)
     diff = finn_nye([ny], kjente)
     assert diff.forsvunne == 0
+
+
+# ---------------------------------------------------------------------------
+# regjeringen.no
+# ---------------------------------------------------------------------------
+_REGJERINGEN_FEED = """<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>RSS Regjeringen.no</title>
+    <item>
+      <title>Fiskeri- og havministeren besøker Brønnøysund</title>
+      <link>https://www.regjeringen.no/no/aktuelt/x/id3171341/</link>
+      <description>Ho skal møte aktørar innan havbruk.</description>
+      <guid>3171341</guid>
+      <pubDate>Thu, 17 Sep 2026 11:00:00 +0200</pubDate>
+    </item>
+  </channel>
+</rss>"""
+
+
+def test_regjeringen_bruker_ekte_guid() -> None:
+    """regjeringen.no gir numerisk side-id som guid — stabil og unik."""
+    kilde = RssKilde(navn="regjeringen", kildenavn="Regjeringen.no",
+                     url="https://example.no/rss")
+    docs = rss.parse_feed(_REGJERINGEN_FEED, kilde)
+    assert len(docs) == 1
+    assert docs[0].kilde_id == "3171341"
+    assert docs[0].id_er_syntetisk is False
+    assert docs[0].publisert is not None and docs[0].publisert.day == 17
+    assert "Brønnøysund" in docs[0].tittel
+
+
+def test_regjeringen_url_bruker_sti_ikke_parameter() -> None:
+    """URL-formatet er en felle som kostet oss en uke.
+
+    Den gamle løsningen brukte `/no/rss/Rss/?id=2581966` — spørrings-
+    parameter — og det gir i dag HTTP 404. Riktig format er sti-segment:
+    `/no/rss/Rss/2581966/`. Fordi 404-en kom uten Cloudflare-utfordring,
+    mens vanlige HTML-sider på regjeringen.no svarer 403 MED Cloudflare,
+    så kilden ut som om den var blokkert. Den var bare feiladressert.
+    """
+    from innhenting.kilder import RSS_KILDER
+
+    reg = [k for k in RSS_KILDER if k.navn == "regjeringen"]
+    assert reg, "regjeringen.no må være en aktiv kilde"
+    url = reg[0].url
+    assert "?id=" not in url, "spørringsparameter gir 404"
+    assert url.rstrip("/").endswith("/Rss/2581966"), "feed-id må stå i stien"

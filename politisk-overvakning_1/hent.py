@@ -105,16 +105,7 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
 
 
 def sjekk_kilder() -> int:
-    """Test alle datakilder uten å skrive noe. Kjøres etter deploy.
-
-    Svarer særlig på spørsmålet om regjeringen.no er tilgjengelig fra
-    driftsmiljøet — den ligger bak Cloudflare og svarte 403 fra
-    utviklingsmiljøet.
-    """
-    import requests
-
-    from innhenting.kilder import REGJERINGEN_RSS_URL
-
+    """Test alle datakilder uten å skrive noe. Kjøres etter deploy."""
     feil = 0
     print("\nStortinget — API")
     for kilde in API_KILDER:
@@ -125,7 +116,7 @@ def sjekk_kilder() -> int:
             print(f"  FEIL              {kilde.kildenavn}: {str(exc)[:60]}")
             feil += 1
 
-    print("\nStortinget — RSS")
+    print("\nRSS")
     for kilde in RSS_KILDER:
         try:
             n = len(rss.hent_feed(kilde))
@@ -133,21 +124,6 @@ def sjekk_kilder() -> int:
         except Exception as exc:
             print(f"  FEIL              {kilde.kildenavn}: {str(exc)[:60]}")
             feil += 1
-
-    print("\nregjeringen.no (ikke aktivert)")
-    try:
-        r = requests.get(
-            REGJERINGEN_RSS_URL, timeout=30,
-            headers={"User-Agent": "Uppercase-PolitiskOvervakning/1.0"},
-        )
-        xml = r.text.lstrip().startswith(("<?xml", "<rss"))
-        if r.status_code == 200 and xml:
-            print(f"  OK    HTTP 200, gyldig RSS — kilden KAN aktiveres")
-        else:
-            print(f"  BLOKKERT  HTTP {r.status_code}, "
-                  f"{'XML' if xml else 'ikke XML'} — Cloudflare stopper oss")
-    except Exception as exc:
-        print(f"  BLOKKERT  {str(exc)[:60]}")
 
     print("\nDatabase")
     try:
