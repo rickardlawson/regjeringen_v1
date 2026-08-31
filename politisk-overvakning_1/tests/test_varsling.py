@@ -278,3 +278,30 @@ def test_web_konfigurerer_logging_ved_import() -> None:
 
     import web.app  # noqa: F401  — importen skal ha satt opp en handler
     assert _logging.getLogger().handlers, "rot-loggeren mangler handler"
+
+
+# ── Innloggingslenker og Outlook ─────────────────────────────────────────
+def test_maks_lenkebruk_er_over_en() -> None:
+    """Lenken må tåle å bli fulgt av en lenkeskanner før brukeren klikker.
+
+    Den var opprinnelig strengt engangs. Hos First House, som kjører Outlook
+    via Microsoft 365, følger lenkeskanneren URL-er automatisk for å sjekke om
+    de er trygge — og brukte dermed opp lenken. Victor fikk «Lenken er brukt
+    opp» på første forsøk, hver gang.
+
+    Settes denne tilbake til 1, er den feilen tilbake.
+    """
+    from db.brukere import MAKS_LENKEBRUK
+
+    assert MAKS_LENKEBRUK > 1, "engangslenker knekker på Outlook-skanning"
+    assert MAKS_LENKEBRUK <= 10, "taket må begrense skaden hvis lenken lekker"
+
+
+def test_levetiden_er_fortsatt_kort() -> None:
+    """Flerbruk er greit fordi vinduet er kort. Utvides levetiden, må taket
+    revurderes."""
+    from datetime import timedelta
+
+    from db.brukere import LENKE_LEVETID
+
+    assert LENKE_LEVETID <= timedelta(hours=1)

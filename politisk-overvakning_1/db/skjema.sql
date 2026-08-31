@@ -125,6 +125,20 @@ CREATE TABLE IF NOT EXISTS innloggingslenke (
 CREATE INDEX IF NOT EXISTS innloggingslenke_bruker_idx
     ON innloggingslenke (bruker_id, opprettet DESC);
 
+-- Antall ganger lenken er brukt.
+--
+-- Lenken var opprinnelig strengt engangs. Det viste seg å ikke fungere hos
+-- kunder på Outlook: lenkeskanneren i Microsoft 365 følger URL-er automatisk
+-- for å sjekke om de er trygge, og brukte dermed opp lenken før brukeren rakk
+-- å klikke. Resultatet var «Lenken er brukt opp» på første forsøk, hver gang.
+--
+-- Nå tillates flere bruk innenfor gyldighetsvinduet på 30 minutter, med et
+-- tak. Sikkerhetsmessig er det en liten endring: innboksen er uansett roten
+-- til tilliten — den som leser e-posten kan bare be om en ny lenke. Taket
+-- begrenser skaden hvis selve lenken lekker videre.
+ALTER TABLE innloggingslenke
+    ADD COLUMN IF NOT EXISTS antall_bruk INTEGER NOT NULL DEFAULT 0;
+
 CREATE TABLE IF NOT EXISTS abonnement (
     id          BIGSERIAL PRIMARY KEY,
     bruker_id   BIGINT NOT NULL REFERENCES bruker(id) ON DELETE CASCADE,

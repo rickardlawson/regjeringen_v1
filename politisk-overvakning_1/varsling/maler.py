@@ -220,8 +220,8 @@ def innlogging(lenke: str) -> tuple[str, str, str]:
       <div style="font-family:{_SANS};font-size:11px;letter-spacing:1.6px;
                   color:{GRÅ};margin:0 0 20px">POLITISK OVERVÅKNING</div>
       <p style="font-family:{_SANS};font-size:15px;line-height:1.6;color:{BLEKK};
-                margin:0 0 24px">Trykk på knappen for å logge inn. Lenken virker
-        i 30 minutter og kan bare brukes én gang.</p>
+                margin:0 0 24px">Trykk på knappen for å logge inn.
+        Lenken virker i 30 minutter.</p>
       <a href="{_e(lenke)}" style="display:inline-block;background:{RØD};
          color:#fff;font-family:{_SANS};font-size:15px;font-weight:600;
          text-decoration:none;padding:13px 28px;border-radius:3px">Logg inn</a>

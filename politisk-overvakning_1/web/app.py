@@ -124,7 +124,7 @@ def logg_inn():
 def lenke_innlogging():
     bruker_id = brukere.los_inn_lenke(request.args.get("token", ""))
     if not bruker_id:
-        flash("Lenken er brukt opp eller utløpt. Be om en ny.", "feil")
+        flash("Lenken er utløpt. Skriv inn adressen din, så sender vi en ny.", "feil")
         return redirect(url_for("logg_inn"))
     session.clear()
     session["bruker_id"] = bruker_id

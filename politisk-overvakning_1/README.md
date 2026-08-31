@@ -151,7 +151,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 88 tester passerer
+- 90 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -253,9 +253,17 @@ nettopp for at det skal kunne droppes rent.
 
 ### Innlogging uten passord
 
-Brukeren skriver e-postadressen sin og får en engangslenke. Ingen passord
+Brukeren skriver e-postadressen sin og får en innloggingslenke. Ingen passord
 lagres, så det finnes ingen passord å lekke. Tokenet ligger kun som hash i
-databasen, virker i 30 minutter, og kan brukes én gang.
+databasen og virker i 30 minutter.
+
+Lenken tåler inntil fem bruk innenfor vinduet. Den var opprinnelig strengt
+engangs, og det fungerte ikke hos First House: lenkeskanneren i Microsoft 365
+følger URL-er automatisk for å sjekke om de er trygge, og brukte opp lenken før
+brukeren rakk å klikke — «Lenken er brukt opp» på første forsøk, hver gang.
+Sikkerhetsmessig er endringen liten, siden innboksen uansett er roten til
+tilliten: den som leser e-posten kan bare be om en ny lenke. Taket begrenser
+skaden hvis selve lenken lekker videre.
 
 Tilgangsstyringen er domenet: alle med en adresse på et tillatt domene kan
 registrere seg selv. Det finnes ingen brukerliste å vedlikeholde — en slik

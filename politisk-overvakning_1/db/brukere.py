@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 
 LENKE_LEVETID = timedelta(minutes=30)
 
+# Hvor mange ganger en innloggingslenke kan brukes innenfor levetiden.
+# Se los_inn_lenke() for hvorfor den ikke er 1.
+MAKS_LENKEBRUK = 5
+
 # Domener som får registrere seg. Settes med TILLATTE_DOMENER, komma-separert.
 #
 # uppercase.no er med fordi Uppercase drifter tjenesten og må kunne teste,
@@ -117,7 +121,7 @@ def lag_innloggingslenke(epost: str) -> tuple[str, str]:
             # gyldige lenker til samme konto samtidig.
             cur.execute(
                 """UPDATE innloggingslenke SET utlopt = NOW()
-                   WHERE bruker_id = %s AND brukt IS NULL AND utlopt > NOW()""",
+                   WHERE bruker_id = %s AND utlopt > NOW()""",
                 (bruker_id,),
             )
             cur.execute(
@@ -131,18 +135,32 @@ def lag_innloggingslenke(epost: str) -> tuple[str, str]:
 def los_inn_lenke(token: str) -> int | None:
     """Bruk en innloggingslenke. Returnerer bruker_id, eller None.
 
-    Lenken kan kun brukes én gang. En lenke som ligger i en e-postinnboks
-    skal ikke gi evig tilgang.
+    Lenken kan brukes flere ganger innenfor gyldighetsvinduet, opptil
+    MAKS_LENKEBRUK. Det er ikke slurv — den var opprinnelig strengt engangs,
+    og det fungerte ikke hos kunder på Outlook: lenkeskanneren i Microsoft 365
+    følger URL-er automatisk for å sjekke om de er trygge, og brukte dermed
+    opp lenken før brukeren rakk å klikke. Brukeren fikk «Lenken er brukt opp»
+    på første forsøk, hver gang.
+
+    Sikkerhetsmessig er endringen liten: innboksen er uansett roten til
+    tilliten, og den som leser e-posten kan bare be om en ny lenke. Vinduet er
+    fortsatt 30 minutter, og taket begrenser skaden hvis lenken lekker videre.
+
+    `brukt` settes ved FØRSTE bruk og står som revisjonsspor.
     """
     if not token:
         return None
     with kobling() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                """UPDATE innloggingslenke SET brukt = NOW()
-                   WHERE token_hash = %s AND brukt IS NULL AND utlopt > NOW()
+                """UPDATE innloggingslenke
+                   SET antall_bruk = antall_bruk + 1,
+                       brukt = COALESCE(brukt, NOW())
+                   WHERE token_hash = %s
+                     AND utlopt > NOW()
+                     AND antall_bruk < %s
                    RETURNING bruker_id""",
-                (_hash(token),),
+                (_hash(token), MAKS_LENKEBRUK),
             )
             rad = cur.fetchone()
             if not rad:
