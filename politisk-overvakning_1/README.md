@@ -151,7 +151,7 @@ før den når databasen.
 
 ## Verifisert
 
-- 90 tester passerer
+- 95 tester passerer
 - Full innhenting mot ekte API: 4 988 dokumenter, 0 hoppet over
 - **Idempotent**: kjøring 2 og 3 gir `0 nye, 0 endrede, 4988 uendrede`
 - 100 % unike ID-er på alle fire API-kilder
@@ -369,12 +369,22 @@ Webtjenesten trenger i tillegg `SECRET_KEY`, `BASIS_URL` og et generert domene.
 5000. Stemmer de ikke overens, får du «Application failed to respond» selv om
 appen kjører fint. Rett porten under Networking, ikke i koden.
 
-**Logging under gunicorn:** `logging.basicConfig` må stå på modulnivå i
-`web/app.py`, ikke inne i `if __name__ == "__main__"`. Under gunicorn er
-`__name__` ikke `"__main__"`, så oppsettet kjører aldri — og uten handler
-dropper Python alt under WARNING. Det gjør appen blind: både
-konsoll-e-postene og tracebackene fra 500-handleren forsvinner i stillhet.
-Dette traff i produksjon 28.08.2026.
+**`if __name__ == "__main__"` under gunicorn.** Under gunicorn er `__name__`
+ikke `"__main__"`, så alt nederst i `web/app.py` kjører aldri. Dette har bitt
+oss to ganger:
+
+- **28.08:** `logging.basicConfig` lå der. Uten handler dropper Python alt
+  under WARNING, og appen var blind — både konsoll-e-postene og tracebackene
+  fra 500-handleren forsvant i stillhet.
+- **31.08:** `init_skjema()` lå der. Webtjenesten deployet med ny kode mot et
+  gammelt skjema og ga 500 på innlogging, for First House sin første tester,
+  til en cron-jobb tilfeldigvis hadde lagt til kolonnen.
+
+Begge kjører nå ved import, og en test i `test_varsling.py` leser kildekoden
+og feiler hvis noe av det havner tilbake i `__main__`.
+
+**Skjemaendringer** er derfor trygge: alle tre tjenestene kjører
+`init_skjema()` ved oppstart, og all DDL er `IF NOT EXISTS`.
 
 
 ## regjeringen.no — URL-fella
@@ -408,3 +418,34 @@ Feeden lar seg ikke filtrere på departement eller tema via URL-parametere;
 filtrene på regjeringen.no sin byggerside genererer nye feed-ID-er. Det gjør
 ingenting — vi filtrerer uansett på vår side med brukerens stikkord, og da
 oppfører kilden seg likt som alle de andre.
+
+
+## Deling av søk
+
+Første funksjonsønske fra en bruker: «kan jeg melde opp en kollega på søket
+mitt?»
+
+Svaret er en **delelenke**, ikke påmelding. Del-knappen på et abonnement
+kopierer en URL:
+
+```
+https://politisk.uppercase.no/nytt?stikkord=Havbruk+OR+Fiskeri
+```
+
+Mottakeren åpner den, ser stikkordet ferdig utfylt og hvor mange treff det
+gir, og lagrer sitt **eget** abonnement.
+
+Grunnen til at vi ikke melder andre på: de ville fått e-post de ikke ba om, og
+som de ikke kunne slå av — abonnementet ville tilhørt avsenderen. Samtykket
+hører hjemme hos mottakeren. Det ville også brutt regelen om at ingen ser
+andres abonnement, som finnes fordi hvilke temaer en rådgiver overvåker kan
+røpe hvilken kunde vedkommende jobber for.
+
+Lenken inneholder kun stikkordet — ingen bruker-id, ingen abonnement-id, ingen
+e-postadresse.
+
+**`neste` bæres gjennom hele innloggingen.** Er mottakeren ikke innlogget,
+følger stikkordet med fra delelenken, gjennom skjemaet, inn i e-postlenken og
+tilbake etter pålogging. Uten det havner en ny bruker på et tomt skjema, og
+delingen er bortkastet. `_trygg_sti()` godtar kun interne stier, så
+parameteren ikke kan misbrukes til åpen viderekobling.

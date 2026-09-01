@@ -6,6 +6,7 @@
   <p class="ingress">Skriv inn e-postadressen din, så sender vi en innloggingslenke.
     Du trenger ikke passord.</p>
   <form method="post">
+    {% if neste %}<input type="hidden" name="neste" value="{{ neste }}">{% endif %}
     <label for="epost">E-postadresse</label>
     <input type="email" id="epost" name="epost" required autofocus
            placeholder="navn@firsthouse.no" autocomplete="email">

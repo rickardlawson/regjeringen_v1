@@ -305,3 +305,96 @@ def test_levetiden_er_fortsatt_kort() -> None:
     from db.brukere import LENKE_LEVETID
 
     assert LENKE_LEVETID <= timedelta(hours=1)
+
+
+def test_web_kjorer_skjemaoppsett_ved_import() -> None:
+    """init_skjema() må kjøre ved import, ikke bare under __main__.
+
+    Under gunicorn er `__name__` ikke `"__main__"`, så alt nederst i fila
+    kjører aldri. Det traff i produksjon 31.08.2026: webtjenesten deployet
+    med ny kode mot et gammelt skjema og ga 500 på innlogging — for First
+    House sin første tester — til en cron-jobb tilfeldigvis hadde kjørt og
+    lagt til kolonnen.
+
+    Samme mønster som logging.basicConfig noen dager før. Sjekker begge her.
+    """
+    from pathlib import Path
+
+    kilde = (Path(__file__).resolve().parents[1] / "web" / "app.py").read_text(
+        encoding="utf-8"
+    )
+    hoveddel, _, main_blokk = kilde.partition('if __name__ == "__main__":')
+
+    assert "init_skjema" in hoveddel, "skjemaoppsett må stå på modulnivå"
+    assert "init_skjema" not in main_blokk, "ikke bare i __main__"
+    assert "logging.basicConfig" in hoveddel
+    assert "logging.basicConfig" not in main_blokk
+
+
+def test_boot_taaler_at_databasen_er_nede() -> None:
+    """Feiler skjemaoppsettet, skal appen likevel starte.
+
+    Ellers svarer ikke /helse, Railway river ned containeren, og du får en
+    crash loop i stedet for en lesbar feil i loggen.
+    """
+    from unittest.mock import patch
+
+    import web.app as webapp
+
+    with patch.object(webapp.lager, "init_skjema",
+                      side_effect=RuntimeError("databasen er nede")):
+        webapp._boot()  # skal ikke kaste
+
+
+# ── Deling av søk ────────────────────────────────────────────────────────
+def test_trygg_sti_avviser_eksterne_maal() -> None:
+    """Viderekobling etter innlogging må bare gå til interne stier.
+
+    Uten dette kan hvem som helst lage en innloggingslenke som sender
+    brukeren til sin egen side rett etter pålogging — åpen viderekobling,
+    og et effektivt phishing-verktøy.
+    """
+    import web.app as webapp
+
+    for ondsinnet in ["//evil.no", "https://evil.no", "http://evil.no",
+                      "/\\evil.no", "javascript:alert(1)", "evil.no", ""]:
+        assert webapp._trygg_sti(ondsinnet) == "", ondsinnet
+
+    assert webapp._trygg_sti("/nytt?stikkord=havbruk") == "/nytt?stikkord=havbruk"
+
+
+def test_deling_gir_lenke_ikke_paamelding() -> None:
+    """Deling skal aldri melde andre på.
+
+    Ragnhild ba om å kunne «melde opp» Steinar på søket sitt. Løsningen er en
+    lenke han lagrer selv — ikke at hun legger ham til som mottaker.
+
+    Meldte hun ham på, ville han fått e-post han ikke ba om, og som han ikke
+    kunne slå av: abonnementet ville vært hennes. Samtykket hører hjemme hos
+    mottakeren. Det ville også brutt regelen om at ingen ser andres
+    abonnement, som er der fordi hvilke temaer en rådgiver overvåker kan
+    røpe hvilken kunde han jobber for.
+    """
+    from pathlib import Path
+
+    rot = Path(__file__).resolve().parents[1]
+    mal = (rot / "web" / "templates" / "mine_varsler.html").read_text(encoding="utf-8")
+    app_kilde = (rot / "web" / "app.py").read_text(encoding="utf-8")
+
+    # Del-knappen skal kun eksponere en lenke til /nytt
+    assert "delelenke" in mal and "delelenke" in app_kilde
+    assert "nytt_varsel" in app_kilde
+
+    # Det skal ikke finnes noen rute som legger til mottakere på et abonnement
+    for forbudt in ["legg_til_mottaker", "del_abonnement", "inviter"]:
+        assert forbudt not in app_kilde, f"{forbudt} ville meldt andre på"
+
+
+def test_delelenken_avslorer_ikke_avsenderen() -> None:
+    """Lenken skal bare inneholde stikkordet — ingen bruker-id, ingen
+    abonnement-id, ingen e-postadresse."""
+    from urllib.parse import parse_qs, urlparse
+
+    lenke = "https://politisk.uppercase.no/nytt?stikkord=Havbruk+OR+Fiskeri"
+    parametre = parse_qs(urlparse(lenke).query)
+    assert set(parametre) == {"stikkord"}

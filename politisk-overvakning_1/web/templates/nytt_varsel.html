@@ -4,8 +4,14 @@
 {% block tittel %}Nytt varsel{% endblock %}
 {% block innhold %}
 <h1>Nytt varsel</h1>
+{% if fra_deling %}
+<p class="ingress">En kollega har delt dette søket med deg. Lagrer du det, blir
+  det <strong>ditt eget</strong> varsel — du kan endre stikkordene eller slå
+  det av når du vil.</p>
+{% else %}
 <p class="ingress">Skriv ett eller flere stikkord. Se hvor mange treff du får
   før du lagrer.</p>
+{% endif %}
 
 <form method="post">
   <label for="stikkord">Stikkord</label>

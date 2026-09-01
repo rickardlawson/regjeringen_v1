@@ -56,6 +56,12 @@
   .aktorer { font-size: 13px; margin-bottom: 8px; }
   .utdrag { font-size: 14px; color: #333; }
   .rad { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+  .handlinger { display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+  .knapp.lenke-knapp {
+    background: none; color: var(--gra); border: 1px solid var(--kant);
+    padding: 6px 14px; font-size: 13px; font-weight: 400;
+  }
+  .knapp.lenke-knapp:hover { color: var(--blekk); border-color: var(--gra); }
   input[type=text], input[type=email] {
     width: 100%; padding: 12px 14px; font: inherit;
     border: 1px solid var(--kant); border-radius: 3px; background: var(--hvit);

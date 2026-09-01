@@ -16,6 +16,7 @@ import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote_plus
 from functools import wraps
 
 from flask import (
@@ -66,6 +67,18 @@ def _for_mange_forsok(nokkel: str) -> bool:
     return len(tidligere) >= _MAKS_FORSOK
 
 
+def _trygg_sti(sti: str) -> str:
+    """Godta kun interne stier som viderekobling.
+
+    Uten denne kan hvem som helst lage en innloggingslenke som sender
+    brukeren videre til sin egen side etter pålogging — klassisk åpen
+    viderekobling, og et fint verktøy for phishing.
+    """
+    if not sti.startswith("/") or sti.startswith("//") or "\\" in sti:
+        return ""
+    return sti
+
+
 def _domenetekst() -> str:
     """Hvilke domener som slipper inn, til visning i skjemaet."""
     d = brukere.tillatte_domener()
@@ -79,7 +92,11 @@ def krev_innlogging(f):
     def innpakket(*a, **kw):
         bruker_id = session.get("bruker_id")
         if not bruker_id:
-            return redirect(url_for("logg_inn", neste=request.path))
+            # full_path, ikke path: ellers mister vi spørringen. En delt
+            # varsellenke (/nytt?stikkord=...) ville da sendt mottakeren til
+            # et tomt skjema etter innlogging, og delingen var bortkastet.
+            neste = request.full_path.rstrip("?")
+            return redirect(url_for("logg_inn", neste=neste))
         bruker = brukere.hent_bruker(bruker_id)
         if not bruker:
             session.clear()
@@ -95,29 +112,38 @@ def logg_inn():
     if session.get("bruker_id"):
         return redirect(url_for("mine_varsler"))
 
+    # Hvor brukeren skulle. Må bæres hele veien gjennom skjemaet og inn i
+    # e-postlenken, ellers mister en delt varsellenke stikkordet sitt.
+    neste = _trygg_sti(request.values.get("neste", ""))
+
     if request.method == "POST":
         epost_inn = (request.form.get("epost") or "").strip()
         if _for_mange_forsok(epost_inn.lower() or request.remote_addr or "?"):
             flash("For mange forsøk. Vent et kvarter og prøv igjen.", "feil")
-            return render_template("logg_inn.html", domenetekst=_domenetekst())
+            return render_template("logg_inn.html", domenetekst=_domenetekst(),
+                                   neste=neste)
         try:
             token, adresse = brukere.lag_innloggingslenke(epost_inn)
         except brukere.UgyldigEpost as exc:
             flash(str(exc), "feil")
-            return render_template("logg_inn.html", domenetekst=_domenetekst())
+            return render_template("logg_inn.html", domenetekst=_domenetekst(),
+                                   neste=neste)
 
         basis = os.environ.get("BASIS_URL", request.url_root).rstrip("/")
         lenke = f"{basis}{url_for('lenke_innlogging')}?token={token}"
+        if neste:
+            lenke += f"&neste={quote_plus(neste)}"
         emne, html, tekst = maler.innlogging(lenke)
         try:
             epostmodul.send(epostmodul.Epost(til=adresse, emne=emne, html=html, tekst=tekst))
         except epostmodul.EpostFeil as exc:
             logger.error("Innloggingsmail til %s feilet: %s", adresse, exc)
             flash("Klarte ikke sende e-posten. Prøv igjen om litt.", "feil")
-            return render_template("logg_inn.html", domenetekst=_domenetekst())
+            return render_template("logg_inn.html", domenetekst=_domenetekst(),
+                                   neste=neste)
         return render_template("lenke_sendt.html", epost=adresse)
 
-    return render_template("logg_inn.html", domenetekst=_domenetekst())
+    return render_template("logg_inn.html", domenetekst=_domenetekst(), neste=neste)
 
 
 @app.route("/lenke")
@@ -129,11 +155,8 @@ def lenke_innlogging():
     session.clear()
     session["bruker_id"] = bruker_id
     session.permanent = True
-    neste = request.args.get("neste", "")
-    # Kun interne stier, aldri absolutte URL-er fra parameteren.
-    if neste.startswith("/") and not neste.startswith("//"):
-        return redirect(neste)
-    return redirect(url_for("mine_varsler"))
+    neste = _trygg_sti(request.args.get("neste", ""))
+    return redirect(neste or url_for("mine_varsler"))
 
 
 @app.route("/logg-ut", methods=["POST"])
@@ -146,6 +169,7 @@ def logg_ut():
 @app.route("/")
 @krev_innlogging
 def mine_varsler():
+    basis = os.environ.get("BASIS_URL", request.url_root).rstrip("/")
     abonnementer = brukere.hent_abonnement(request.bruker["id"])
     for ab in abonnementer:
         try:
@@ -153,6 +177,13 @@ def mine_varsler():
         except TomtSok:
             ab["treff_totalt"] = 0
         ab["visning"] = beskriv(ab["stikkord"])
+        # Delelenke: mottakeren får stikkordet ferdig utfylt og lagrer sitt
+        # EGET abonnement. Vi melder aldri andre på — da hadde de fått e-post
+        # de ikke ba om, og som de ikke kunne slå av selv.
+        ab["delelenke"] = (
+            f"{basis}{url_for('nytt_varsel')}"
+            f"?stikkord={quote_plus(ab['stikkord'])}"
+        )
     return render_template(
         "mine_varsler.html",
         abonnementer=abonnementer,
@@ -193,6 +224,9 @@ def nytt_varsel():
         stikkord=stikkord,
         antall=antall,
         forhandsvisning=forhandsvisning,
+        # Kom stikkordet fra en delt lenke? Da trenger mottakeren å vite
+        # hvorfor feltet er utfylt, og at han lager sitt eget varsel.
+        fra_deling=bool(request.args.get("stikkord")) and request.method == "GET",
     )
 
 
@@ -239,6 +273,31 @@ def serverfeil(e):
                            melding="Noe gikk galt. Prøv igjen."), 500
 
 
+def _boot() -> None:
+    """Oppstart. Kjøres ved IMPORT, ikke bare under __main__.
+
+    Under gunicorn er `__name__` ikke `"__main__"`, så alt som ligger nederst
+    i fila kjører aldri. Det har bitt oss to ganger:
+
+      * logging.basicConfig lå der — appen var blind i produksjon
+      * init_skjema() lå der — webtjenesten møtte et gammelt skjema og ga
+        500 på innlogging til en cron-jobb tilfeldigvis hadde kjørt først
+
+    Skjemaet er idempotent (all DDL er IF NOT EXISTS), så det koster noen
+    millisekunder per oppstart og fjerner en hel klasse av feil.
+
+    Feiler det, skal appen likevel starte: da svarer /helse fortsatt, Railway
+    river ikke ned containeren, og feilen står i loggen i stedet for å bli en
+    crash loop.
+    """
+    try:
+        lager.init_skjema()
+    except Exception as exc:
+        logger.exception("init_skjema() feilet ved oppstart: %s", exc)
+
+
+_boot()
+
+
 if __name__ == "__main__":
-    lager.init_skjema()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

@@ -26,16 +26,48 @@
           {%- if not ab.velkomst_sendt %} · venter på oppstartsmail{% endif %}
         </div>
       </div>
-      <form method="post" action="{{ url_for('slett', abonnement_id=ab.id) }}"
-            onsubmit="return confirm('Slå av varselet for «{{ ab.visning }}»?')">
-        <button class="knapp fare" type="submit">Slå av</button>
-      </form>
+      <div class="handlinger">
+        {# Deling skjer med lenke, ikke ved å melde andre på.
+           Mottakeren får stikkordet ferdig utfylt og lagrer sitt eget
+           abonnement — da eier han det selv og kan slå det av selv.
+           Å melde andre på ville gitt dem e-post de ikke har bedt om,
+           og som de ikke kan skru av. #}
+        <button class="knapp lenke-knapp" type="button"
+                data-lenke="{{ ab.delelenke }}"
+                data-stikkord="{{ ab.visning }}">Del</button>
+        <form method="post" action="{{ url_for('slett', abonnement_id=ab.id) }}"
+              onsubmit="return confirm('Slå av varselet for «{{ ab.visning }}»?')">
+          <button class="knapp fare" type="submit">Slå av</button>
+        </form>
+      </div>
     </div>
   </div>
   {% endfor %}
   <div class="knapper">
     <a class="knapp" href="{{ url_for('nytt_varsel') }}">Nytt varsel</a>
   </div>
+
+<script>
+  document.querySelectorAll('.lenke-knapp').forEach(function (knapp) {
+    knapp.addEventListener('click', function () {
+      var lenke = knapp.dataset.lenke;
+      var ferdig = function () {
+        var opprinnelig = knapp.textContent;
+        knapp.textContent = 'Kopiert';
+        setTimeout(function () { knapp.textContent = opprinnelig; }, 2000);
+      };
+      // Utklippstavle-APIet krever HTTPS og brukerklikk. Feiler det,
+      // vis lenken så den kan kopieres manuelt — bedre enn ingen respons.
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(lenke).then(ferdig, function () {
+          window.prompt('Kopier lenken:', lenke);
+        });
+      } else {
+        window.prompt('Kopier lenken:', lenke);
+      }
+    });
+  });
+</script>
 {% else %}
 <div class="tom">
   <p>Du har ingen varsler ennå.<br>
