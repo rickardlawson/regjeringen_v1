@@ -15,6 +15,7 @@ from .modell import Dokument
 from .normalisering import (
     SAKSKLASSE,
     SAKSSTATUS,
+horing_url
     interpellasjon_url,
     parse_dato,
     rydd_tekst,
