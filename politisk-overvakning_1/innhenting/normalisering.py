@@ -117,23 +117,29 @@ def utled_dokumenttype(henvisning: str | None, dokumentgruppe: int | None = None
 
 # ── Lenker ───────────────────────────────────────────────────────────────
 _BASE = "https://www.stortinget.no/no/Saker-og-publikasjoner"
+_BASE_HVA_SKJER = "https://www.stortinget.no/no/Hva-skjer-pa-Stortinget"
 
+# Merk: parameteren heter qnid, ikke qid. `id` fra APIet er en qnid.
+# qid er en eldre intern ID og gir 500-feil på detaljsidene.
+# Hver spørsmålstype har sitt eget stisegment — de kan ikke utledes.
 
 def sak_url(sak_id: str | int) -> str:
     return f"{_BASE}/Saker/Sak/?p={sak_id}"
 
-
 def skriftlig_sporsmal_url(sporsmal_id: str | int) -> str:
-    return f"{_BASE}/Sporsmal/Skriftlige-sporsmal-og-svar/?qid={sporsmal_id}"
-
+    return (f"{_BASE}/Sporsmal/Skriftlige-sporsmal-og-svar"
+            f"/Skriftlig-sporsmal/?qnid={sporsmal_id}")
 
 def sporretime_url(sporsmal_id: str | int) -> str:
-    return f"{_BASE}/Sporsmal/Sporretimesporsmal/?qid={sporsmal_id}"
-
+    return (f"{_BASE}/Sporsmal/Sporretimesporsmal"
+            f"/et-sporretimesporsmal/?qnid={sporsmal_id}")
 
 def interpellasjon_url(sporsmal_id: str | int) -> str:
-    return f"{_BASE}/Sporsmal/Interpellasjoner/?qid={sporsmal_id}"
+    return (f"{_BASE}/Sporsmal/Interpellasjoner"
+            f"/Interpellasjon/?qnid={sporsmal_id}")
 
+def horing_url(horing_id: str | int) -> str:
+    return f"{_BASE_HVA_SKJER}/Horing/horing/?h={horing_id}"
 
 # ── Tekst ────────────────────────────────────────────────────────────────
 _FLERE_MELLOMROM = re.compile(r"\s+")
