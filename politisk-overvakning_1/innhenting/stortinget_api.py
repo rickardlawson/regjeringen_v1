@@ -281,7 +281,7 @@ def hent_kilde(kilde: ApiKilde, sesjonid: str | None = None) -> list[Dokument]:
         "%s: %d dokumenter (%d hoppet over)", kilde.navn, len(dokumenter), hoppet_over
     )
     return dokumenter
-
+ 
 
 def hent_alle(
     sesjonid: str | None = None,
