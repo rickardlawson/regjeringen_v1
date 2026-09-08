@@ -223,11 +223,7 @@ def normaliser_horing(post: dict[str, Any]) -> Dokument | None:
             break
 
     # Lenk til saken høringen gjelder — RSS-feeden gjør det samme.
-    url = ""
-    for s in saker:
-        if isinstance(s, dict) and s.get("sak_id"):
-            url = sak_url(s["sak_id"])
-            break
+    url = horing_url(horing_id)
 
     tidspunkt = (post.get("horingstidspunkt_liste") or [{}])[0]
     return Dokument(
