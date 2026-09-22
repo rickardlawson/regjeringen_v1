@@ -21,6 +21,9 @@ from .normalisering import rydd_tekst
 
 logger = logging.getLogger(__name__)
 
+# Hvor mange eksempel-ID-er som logges per kilde når noe har forsvunnet.
+_EKSEMPLER = 5
+
 
 def innholdshash(dok: Dokument) -> str:
     """Hash av de feltene som betyr noe for om dokumentet er 'endret'.
@@ -46,17 +49,19 @@ class Diff:
     nye: list[Dokument] = field(default_factory=list)
     endrede: list[Dokument] = field(default_factory=list)
     uendrede: int = 0
-    forsvunne: int = 0
-    """Dokumenter fra API-kilder som ikke lenger finnes i kilden.
+    forsvunne_per_kilde: dict[str, list[str]] = field(default_factory=dict)
+    """Kjente kilde_id-er per kilde som ikke kom med i denne kjøringen.
 
-    Telles kun for kilder med ekte ID-er. Slike ID-er skal aldri forsvinne, så
-    et tall over null betyr at noe er galt — typisk at ID-er har skiftet.
-    Det var nøyaktig det som skjedde 27.08.2026: 262 forsvant og 262 dukket
-    opp som «nye» i samme kjøring, fordi RSS-høringene hadde hashede ID-er.
-
-    Rullerende RSS-feeder telles ikke med. «Aktuelt» viser bare de siste
-    sakene, så eldre poster forsvinner naturlig ut av feeden.
+    Telles kun for kilder som leverer et KOMPLETT datasett og som faktisk
+    lyktes denne runden (API-kildene). At ID-ene er ekte er ikke nok:
+    RSS-feedene har ekte GUID-er, men er rullerende, så eldre poster
+    forsvinner naturlig ut. Før 22.09.2026 ble de talt med, og ga ~430
+    «forsvunne» per kjøring — et tall som druknet det ekte signalet.
     """
+
+    @property
+    def forsvunne(self) -> int:
+        return sum(len(v) for v in self.forsvunne_per_kilde.values())
 
     @property
     def antall_varslbare(self) -> int:
@@ -75,10 +80,15 @@ class Diff:
 def finn_nye(
     hentede: list[Dokument],
     kjente: dict[tuple[str, str], str],
+    komplette_kilder: set[str] | None = None,
 ) -> Diff:
     """Sammenlign hentede dokumenter mot det vi allerede har lagret.
 
     `kjente` er {(kilde, kilde_id): innholdshash} fra databasen.
+
+    `komplette_kilder` er kildene som leverte hele datasettet sitt denne
+    runden. Kun de sjekkes for forsvunne dokumenter. Sendes det ikke inn,
+    sjekkes ingen — bedre enn å gjette og gi falsk alarm.
 
     Dubletter innenfor samme kjøring fjernes også — Stortingets API kan
     returnere samme sak i flere lister.
@@ -102,30 +112,23 @@ def finn_nye(
         else:
             diff.uendrede += 1
 
-    # Foreldreløse telles KUN for kilder som leverer et komplett datasett,
-    # altså API-kildene. En rullerende RSS-feed som «Aktuelt» viser bare de
-    # siste sakene, så eldre poster forsvinner naturlig ut av feeden mens de
-    # blir stående i basen. Å telle dem som forsvunne ville gitt et tall som
-    # vokser for evig og drukner det signalet vi faktisk er ute etter.
-    komplette_kilder = {
-        d.kilde for d in hentede if not d.id_er_syntetisk
-    } - {d.kilde for d in hentede if d.id_er_syntetisk}
-
-    sett_i_komplette = sum(
-        1 for n in sett_denne_runden if n[0] in komplette_kilder
-    )
-    kjente_i_komplette = sum(1 for (kilde, _) in kjente if kilde in komplette_kilder)
-    diff.forsvunne = max(0, kjente_i_komplette - sett_i_komplette)
+    # Forsvunne = kjente nøkler som IKKE ble sett. Tidligere ble dette regnet
+    # som (antall kjente − antall sett), der «sett» også inkluderte nye
+    # dokumenter. Da skjulte hvert nye dokument ett forsvunnet.
+    for kilde, kilde_id in kjente:
+        if komplette_kilder and kilde in komplette_kilder \
+                and (kilde, kilde_id) not in sett_denne_runden:
+            diff.forsvunne_per_kilde.setdefault(kilde, []).append(kilde_id)
 
     logger.info("Diff: %s", diff)
 
-    if diff.forsvunne > 0:
+    for kilde, ider in sorted(diff.forsvunne_per_kilde.items()):
         logger.warning(
-            "%d dokumenter fra API-kilder finnes ikke lenger. Ekte ID-er skal "
-            "ikke forsvinne — dette tyder på at ID-er har skiftet, ikke at "
-            "innhold er slettet. %d dukket opp som nye i samme kjøring. "
-            "Varslingslaget bør ikke sende ut denne runden uten kontroll.",
-            diff.forsvunne, len(diff.nye),
+            "%s: %d kjente dokumenter mangler i kilden denne runden "
+            "(f.eks. kilde_id %s). Ekte ID-er i et komplett datasett skal "
+            "ikke forsvinne — sjekk om de er trukket tilbake eller om "
+            "ID-ordningen er endret.",
+            kilde, len(ider), ", ".join(sorted(ider)[:_EKSEMPLER]),
         )
 
     return diff
