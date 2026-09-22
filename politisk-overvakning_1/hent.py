@@ -14,7 +14,7 @@ import logging
 import sys
 
 from db import lager
-from innhenting import rss, stortinget_api
+from innhenting import rss, stortinget_api, stortinget_web_fallback
 from innhenting.diff import finn_nye, forste_gangs_kjoring
 from innhenting.kilder import API_KILDER, RSS_KILDER
 
@@ -25,6 +25,9 @@ logger = logging.getLogger("hent")
 # den om til RequestException. Da ser den ut som en helt vanlig kildefeil, og
 # jobben fullfører med et halvt datasett og rapporterer suksess.
 _tidsavbrudd = False
+
+_SKRIFTLIG = "stortinget_skriftlig_sporsmal"
+_WEB_FALLBACK = "stortinget_web_skriftlig"
 
 
 def _avbrutt() -> bool:
@@ -55,6 +58,30 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
         _hent(kilde, lambda k, s=None: stortinget_api.hent_kilde(k, s))
     for kilde in RSS_KILDER:
         _hent(kilde, lambda k, s=None: rss.hent_feed(k))
+
+    # Web-fallback: data.stortinget.no kan ligge dager etter stortinget.no.
+    # Kjøres bare for inneværende sesjon, og bare når API-kilden for skriftlige
+    # spørsmål lyktes — ellers ville vi overskrevet API-data med tynnere
+    # web-data for alle spørsmål på listesiden.
+    if sesjon is None and _SKRIFTLIG in ok:
+        if _avbrutt():
+            raise TimeoutError("Tidsavbrudd — avbryter innhentingen.")
+        try:
+            api_ider = {d.kilde_id for d in hentede if d.kilde == _SKRIFTLIG}
+            ekstra = stortinget_web_fallback.hent_manglende(api_ider)
+            hentede.extend(ekstra)
+            ok.append(_WEB_FALLBACK)
+            logger.info(
+                "%s: %d skriftlige spørsmål som mangler i API-et",
+                _WEB_FALLBACK, len(ekstra),
+            )
+        except TimeoutError:
+            raise
+        except Exception as exc:
+            if _avbrutt():
+                raise TimeoutError("Tidsavbrudd under henting.") from exc
+            logger.error("%s feilet: %s", _WEB_FALLBACK, exc)
+            feilet.append(_WEB_FALLBACK)
 
     if _avbrutt():
         raise TimeoutError("Tidsavbrudd — skriver ikke.")
@@ -115,6 +142,14 @@ def sjekk_kilder() -> int:
         except Exception as exc:
             print(f"  FEIL              {kilde.kildenavn}: {str(exc)[:60]}")
             feil += 1
+
+    print("\nStortinget — web-fallback")
+    try:
+        n = len(stortinget_web_fallback.hent_manglende(set(), maks_sider=1))
+        print(f"  OK    {n:6} dokumenter  Skriftlige spørsmål (listeside 1)")
+    except Exception as exc:
+        print(f"  FEIL              Skriftlige spørsmål (web): {str(exc)[:60]}")
+        feil += 1
 
     print("\nRSS")
     for kilde in RSS_KILDER:
