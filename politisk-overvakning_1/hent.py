@@ -110,7 +110,15 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
     logg_id = lager.start_logg()
     try:
         kjente = lager.hent_kjente_hasher()
-        diff = finn_nye(hentede, kjente)
+        # Kun API-kilder som lyktes denne runden leverer et komplett datasett.
+        # RSS er rullerende, og en historisk --sesjon er et annet utvalg.
+        komplette = set()
+        if sesjon is None:
+            komplette = {k.navn for k in API_KILDER if k.navn in ok}
+            if _WEB_FALLBACK in feilet:
+                # Da mangler spørsmålene fallbacken ellers ville levert.
+                komplette.discard(_SKRIFTLIG)
+        diff = finn_nye(hentede, kjente, komplette)
 
         if forste_gangs_kjoring(diff):
             logger.warning(
