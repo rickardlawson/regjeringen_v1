@@ -34,6 +34,34 @@ def _avbrutt() -> bool:
     return _tidsavbrudd
 
 
+def _uten_usette_webdokumenter(kjente: dict, hentede: list) -> dict:
+    """Fjern web-fallback-dokumenter som ikke ble sett denne runden fra diffen.
+
+    Listesiden på stortinget.no har ustabil sortering (like datoer bytter
+    plass mellom sidevisninger), så et spørsmål kan falle mellom to sider i
+    én kjøring og komme tilbake i neste. Det er ikke et forsvunnet dokument.
+    Dokumenter API-et har levert (raadata uten _kilde=stortinget_web)
+    sjekkes som før.
+    """
+    try:
+        with lager.kobling() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT kilde_id FROM dokument "
+                    "WHERE kilde = %s AND raadata->>'_kilde' = 'stortinget_web'",
+                    (_SKRIFTLIG,),
+                )
+                web_ider = {r[0] for r in cur.fetchall()}
+    except Exception as exc:  # aldri velt innhentingen for en logglinje
+        logger.warning("Klarte ikke hente web-ID-er for diff: %s", exc)
+        return kjente
+    sett = {d.nokkel for d in hentede}
+    return {
+        n: h for n, h in kjente.items()
+        if not (n[0] == _SKRIFTLIG and n[1] in web_ider and n not in sett)
+    }
+
+
 def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
     ok: list[str] = []
     feilet: list[str] = []
@@ -118,7 +146,7 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
             if _WEB_FALLBACK in feilet:
                 # Da mangler spørsmålene fallbacken ellers ville levert.
                 komplette.discard(_SKRIFTLIG)
-        diff = finn_nye(hentede, kjente, komplette)
+        diff = finn_nye(hentede, _uten_usette_webdokumenter(kjente, hentede), komplette)
 
         if forste_gangs_kjoring(diff):
             logger.warning(
