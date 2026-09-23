@@ -88,22 +88,27 @@ class RssKilde:
 
 
 # regjeringen.no sin RSS kan filtreres på innholdstype med ?documentType=.
-# Verdiene er ikke dokumentert — disse er testet og bekreftet 23.09.2026
-# (en ugyldig verdi gir tom feed, ikke feil). Spesifikke typer står først:
-# en post som finnes i flere feeder får typen fra den første.
-#
-# Mangler foreløpig (verdien er ukjent): Høringer, EØS-dokumenter, Svar til
-# Stortinget, Offisielt fra statsråd, Taler og innlegg, Lover og regler.
-# Høringer og EØS-notater gjenkjennes i stedet på URL-en (se rss.py).
+# Verdiene er ikke dokumentert — de er hentet fra filtrene på
+# regjeringen.no/no/aktuelt/rss/id2581966/ og testet 23.09.2026. En ugyldig
+# verdi gir tom feed, ikke feil. Spesifikke typer står først: en post som
+# finnes i flere feeder får typen fra den første.
 REGJERINGEN_DELFEEDER: tuple[tuple[str, str], ...] = (
+    # Dokumenter
     ("dokumenter/proposisjoner", "Proposisjon"),
     ("dokumenter/meldinger", "Melding"),
     ("dokumenter/nouer", "NOU"),
+    ("dokumenter/høringer", "Høring"),
+    ("loverogregler", "Lover og regler"),
+    ("dokumenter/eøsdokumenter", "EØS-notat"),
     ("dokumenter/rapporter", "Rapport"),
     ("dokumenter/planer", "Plan/strategi"),
     ("dokumenter/brev", "Brev"),
     ("dokumenter/konsesjoner", "Konsesjon"),
     ("dokumenter/anbud", "Anbud"),
+    # Aktuelt
+    ("aktuelt/responsetoparliament", "Svar til Stortinget"),
+    ("aktuelt/offisieltfrastatsråd", "Offisielt fra statsråd"),
+    ("aktuelt/talerogartikler", "Tale/innlegg"),
     ("aktuelt/kalender", "Kalenderhendelse"),
     ("aktuelt/nyheter", "Nyhet/pressemelding"),
 )
