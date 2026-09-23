@@ -263,6 +263,7 @@ def hent_kilde(kilde: ApiKilde, sesjonid: str | None = None) -> list[Dokument]:
         raise ApiFeil(f"{kilde.endepunkt}: forventet liste i '{kilde.listenokkel}'")
 
     normaliser = _NORMALISERERE[kilde.navn]
+    sesjon_fra_api = data.get("sesjon_id") or sesjonid or ""
     dokumenter: list[Dokument] = []
     hoppet_over = 0
     for post in poster:
@@ -275,7 +276,8 @@ def hent_kilde(kilde: ApiKilde, sesjonid: str | None = None) -> list[Dokument]:
         if dok is None:
             hoppet_over += 1
             continue
-        dokumenter.append(dok)
+    dok.rådata["_sesjon"] = sesjon_fra_api
+    dokumenter.append(dok)
 
     logger.info(
         "%s: %d dokumenter (%d hoppet over)", kilde.navn, len(dokumenter), hoppet_over
