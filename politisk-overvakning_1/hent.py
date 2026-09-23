@@ -62,6 +62,31 @@ def _uten_usette_webdokumenter(kjente: dict, hentede: list) -> dict:
     }
 
 
+def _uten_usette_fra_andre_sesjoner(kjente: dict, hentede: list, naa: str) -> dict:
+    """Fjern dokumenter fra andre sesjoner enn inneværende fra diffen.
+
+    Ved sesjonsskiftet 1. oktober slutter API-et å levere forrige sesjon.
+    Det er ikke forsvunne dokumenter. Dokumenter uten _sesjon-merke
+    (lagret før merkingen kom, eller fra web-fallbacken) behandles likt:
+    de sjekkes bare hvis de faktisk ble sett denne runden.
+    """
+    try:
+        with lager.kobling() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT kilde, kilde_id FROM dokument "
+                    "WHERE kilde = ANY(%s) "
+                    "AND raadata->>'_sesjon' IS DISTINCT FROM %s",
+                    ([k.navn for k in API_KILDER], naa),
+                )
+                andre = {(r[0], r[1]) for r in cur.fetchall()}
+    except Exception as exc:  # aldri velt innhentingen for en logglinje
+        logger.warning("Klarte ikke hente sesjonsdata for diff: %s", exc)
+        return kjente
+    sett = {d.nokkel for d in hentede}
+    return {n: h for n, h in kjente.items() if not (n in andre and n not in sett)}
+
+
 def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
     ok: list[str] = []
     feilet: list[str] = []
@@ -146,7 +171,19 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
             if _WEB_FALLBACK in feilet:
                 # Da mangler spørsmålene fallbacken ellers ville levert.
                 komplette.discard(_SKRIFTLIG)
-        diff = finn_nye(hentede, _uten_usette_webdokumenter(kjente, hentede), komplette)
+
+        filtrert = _uten_usette_webdokumenter(kjente, hentede)
+        # Komplett betyr komplett for inneværende sesjon. Dokumenter fra
+        # tidligere sesjoner leveres ikke lenger av API-et og skal ikke
+        # meldes som forsvunnet.
+        naa = {
+            d.rådata.get("_sesjon") for d in hentede if d.kilde in komplette
+        } - {None, ""}
+        if len(naa) == 1:
+            filtrert = _uten_usette_fra_andre_sesjoner(filtrert, hentede, naa.pop())
+        elif naa:
+            logger.warning("Flere sesjoner i samme kjøring: %s", sorted(naa))
+        diff = finn_nye(hentede, filtrert, komplette)
 
         if forste_gangs_kjoring(diff):
             logger.warning(
