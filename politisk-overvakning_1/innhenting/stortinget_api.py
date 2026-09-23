@@ -15,7 +15,7 @@ from .modell import Dokument
 from .normalisering import (
     SAKSKLASSE,
     SAKSSTATUS,
-horing_url,
+    horing_url,
     interpellasjon_url,
     parse_dato,
     rydd_tekst,
@@ -263,6 +263,9 @@ def hent_kilde(kilde: ApiKilde, sesjonid: str | None = None) -> list[Dokument]:
         raise ApiFeil(f"{kilde.endepunkt}: forventet liste i '{kilde.listenokkel}'")
 
     normaliser = _NORMALISERERE[kilde.navn]
+    # Hvert API-svar oppgir hvilken sesjon det gjelder. Den merkes på hvert
+    # dokument, slik at diffen kan skille forrige sesjon fra forsvunne
+    # dokumenter etter sesjonsskiftet 1. oktober.
     sesjon_fra_api = data.get("sesjon_id") or sesjonid or ""
     dokumenter: list[Dokument] = []
     hoppet_over = 0
@@ -276,14 +279,14 @@ def hent_kilde(kilde: ApiKilde, sesjonid: str | None = None) -> list[Dokument]:
         if dok is None:
             hoppet_over += 1
             continue
-    dok.rådata["_sesjon"] = sesjon_fra_api
-    dokumenter.append(dok)
+        dok.rådata["_sesjon"] = sesjon_fra_api
+        dokumenter.append(dok)
 
     logger.info(
         "%s: %d dokumenter (%d hoppet over)", kilde.navn, len(dokumenter), hoppet_over
     )
     return dokumenter
- 
+
 
 def hent_alle(
     sesjonid: str | None = None,
