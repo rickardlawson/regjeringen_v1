@@ -77,7 +77,36 @@ class RssKilde:
     navn: str
     kildenavn: str
     url: str
+    delfeeder: tuple[tuple[str, str], ...] = ()
+    """(documentType-verdi, dokumenttype) for typede delfeeder av `url`.
 
+    Når satt, hentes hver delfeed som `url?documentType=<verdi>`, og posten
+    får dokumenttypen fra feeden den kom fra. `url` uten filter hentes til
+    slutt som sikkerhetsnett for typer som ikke har egen delfeed. Alt teller
+    som én kilde, så et utfall hos én side ikke velter flertallssjekken.
+    """
+
+
+# regjeringen.no sin RSS kan filtreres på innholdstype med ?documentType=.
+# Verdiene er ikke dokumentert — disse er testet og bekreftet 23.09.2026
+# (en ugyldig verdi gir tom feed, ikke feil). Spesifikke typer står først:
+# en post som finnes i flere feeder får typen fra den første.
+#
+# Mangler foreløpig (verdien er ukjent): Høringer, EØS-dokumenter, Svar til
+# Stortinget, Offisielt fra statsråd, Taler og innlegg, Lover og regler.
+# Høringer og EØS-notater gjenkjennes i stedet på URL-en (se rss.py).
+REGJERINGEN_DELFEEDER: tuple[tuple[str, str], ...] = (
+    ("dokumenter/proposisjoner", "Proposisjon"),
+    ("dokumenter/meldinger", "Melding"),
+    ("dokumenter/nouer", "NOU"),
+    ("dokumenter/rapporter", "Rapport"),
+    ("dokumenter/planer", "Plan/strategi"),
+    ("dokumenter/brev", "Brev"),
+    ("dokumenter/konsesjoner", "Konsesjon"),
+    ("dokumenter/anbud", "Anbud"),
+    ("aktuelt/kalender", "Kalenderhendelse"),
+    ("aktuelt/nyheter", "Nyhet/pressemelding"),
+)
 
 # Kun det APIet ikke gir oss. Stortinget har ~150 RSS-feeder, men de fleste er
 # delmengder av data vi allerede henter strukturert via APIet — å abonnere på
@@ -103,6 +132,7 @@ RSS_KILDER: tuple[RssKilde, ...] = (
         navn="regjeringen",
         kildenavn="Regjeringen.no",
         url="https://www.regjeringen.no/no/rss/Rss/2581966/",
+        delfeeder=REGJERINGEN_DELFEEDER,
     ),
 )
 
