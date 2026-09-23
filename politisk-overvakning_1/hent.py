@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from datetime import datetime
 import signal
 import logging
 import sys
@@ -28,6 +29,16 @@ _tidsavbrudd = False
 
 _SKRIFTLIG = "stortinget_skriftlig_sporsmal"
 _WEB_FALLBACK = "stortinget_web_skriftlig"
+
+# Spørsmål stilt før sesjonsskiftet 1. oktober besvares ofte etterpå. Da
+# leverer API-et dem bare hvis vi ber om forrige sesjon eksplisitt. I
+# overgangsperioden hentes derfor forrige sesjon i tillegg for disse kildene.
+_SPORSMALSKILDER = {
+    "stortinget_skriftlig_sporsmal",
+    "stortinget_sporretime",
+    "stortinget_interpellasjon",
+}
+_OVERGANGSMANEDER = {10, 11}
 
 
 def _avbrutt() -> bool:
@@ -87,6 +98,28 @@ def _uten_usette_fra_andre_sesjoner(kjente: dict, hentede: list, naa: str) -> di
     return {n: h for n, h in kjente.items() if not (n in andre and n not in sett)}
 
 
+def _innevaerende_sesjon(hentede: list) -> str | None:
+    """Sesjonen API-et leverte denne runden, eller None hvis uklart."""
+    api_navn = {k.navn for k in API_KILDER}
+    sesjoner = {
+        d.rådata.get("_sesjon") for d in hentede if d.kilde in api_navn
+    } - {None, ""}
+    if len(sesjoner) == 1:
+        return sesjoner.pop()
+    if sesjoner:
+        logger.warning("Flere sesjoner i samme kjøring: %s", sorted(sesjoner))
+    return None
+
+
+def _forrige_sesjon(sesjon: str) -> str | None:
+    """'2026-2027' -> '2025-2026'."""
+    try:
+        fra, til = (int(x) for x in sesjon.split("-"))
+    except ValueError:
+        return None
+    return f"{fra - 1}-{til - 1}"
+
+
 def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
     ok: list[str] = []
     feilet: list[str] = []
@@ -111,6 +144,37 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
         _hent(kilde, lambda k, s=None: stortinget_api.hent_kilde(k, s))
     for kilde in RSS_KILDER:
         _hent(kilde, lambda k, s=None: rss.hent_feed(k))
+
+    # Må beregnes før forrige sesjon legges til i `hentede`.
+    naa = _innevaerende_sesjon(hentede) if sesjon is None else None
+
+    # Overgangsperioden: hent forrige sesjon for spørsmålskildene, slik at
+    # svar som kommer etter sesjonsskiftet fanges opp (som «endret»).
+    # Kjøres før web-fallbacken, så den ikke tror disse spørsmålene mangler.
+    # Feil her er ikke kritisk: kilden teller verken som ok eller feilet.
+    forrige = _forrige_sesjon(naa) if naa else None
+    if forrige and datetime.now().month in _OVERGANGSMANEDER:
+        for kilde in API_KILDER:
+            if kilde.navn not in _SPORSMALSKILDER:
+                continue
+            if _avbrutt():
+                raise TimeoutError("Tidsavbrudd — avbryter innhentingen.")
+            try:
+                gamle = stortinget_api.hent_kilde(kilde, forrige)
+                hentede.extend(gamle)
+                logger.info(
+                    "%s: %d dokumenter fra forrige sesjon (%s)",
+                    kilde.navn, len(gamle), forrige,
+                )
+            except TimeoutError:
+                raise
+            except Exception as exc:
+                if _avbrutt():
+                    raise TimeoutError("Tidsavbrudd under henting.") from exc
+                logger.warning(
+                    "%s: klarte ikke hente forrige sesjon (%s): %s",
+                    kilde.navn, forrige, exc,
+                )
 
     # Web-fallback: data.stortinget.no kan ligge dager etter stortinget.no.
     # Kjøres bare for inneværende sesjon, og bare når API-kilden for skriftlige
@@ -176,13 +240,8 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
         # Komplett betyr komplett for inneværende sesjon. Dokumenter fra
         # tidligere sesjoner leveres ikke lenger av API-et og skal ikke
         # meldes som forsvunnet.
-        naa = {
-            d.rådata.get("_sesjon") for d in hentede if d.kilde in komplette
-        } - {None, ""}
-        if len(naa) == 1:
-            filtrert = _uten_usette_fra_andre_sesjoner(filtrert, hentede, naa.pop())
-        elif naa:
-            logger.warning("Flere sesjoner i samme kjøring: %s", sorted(naa))
+        if naa and komplette:
+            filtrert = _uten_usette_fra_andre_sesjoner(filtrert, hentede, naa)
         diff = finn_nye(hentede, filtrert, komplette)
 
         if forste_gangs_kjoring(diff):
