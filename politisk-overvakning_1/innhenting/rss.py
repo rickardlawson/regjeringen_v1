@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 import requests
@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 45
 _BRUKERAGENT = "Uppercase-PolitiskOvervakning/1.0 (+https://uppercase.no)"
 _DC = "{http://purl.org/dc/elements/1.1/}"
+
+# Typede delfeeder har de 100 siste postene av sin type, og for sjeldne typer
+# (proposisjoner, NOU-er) går det måneder tilbake. Uten grense ville første
+# kjøring meldt alle som nye og sendt varsler om gamle dokumenter. Nyere
+# poster enn dette har den generelle feeden allerede levert oss.
+_MAKS_ALDER_DELFEED = timedelta(days=14)
 
 
 class RssFeil(RuntimeError):
@@ -65,7 +71,32 @@ def parse_dato_rss(node: ET.Element) -> datetime | None:
     return None
 
 
-def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
+def utled_type_fra_url(url: str) -> str:
+    """Dokumenttype for poster fra den generelle feeden, ut fra URL-en.
+
+    Brukes bare der ingen typet delfeed har levert posten. Kun mønstre som
+    er entydige — ellers heller tom type enn feil type.
+    """
+    u = url.lower()
+    if "/dokumenter/horing" in u or "/dokumenter/hoyring" in u:
+        return "Høring"
+    if "/sub/eos-notatbasen/" in u:
+        return "EØS-notat"
+    if "/reiseinformasjon/" in u:
+        return "Reiseinformasjon"
+    if "/statsbudsjett/" in u:
+        return "Statsbudsjett"
+    if "/tema/" in u:
+        return "Temaside"
+    return ""
+
+
+def parse_feed(
+    xml: str | bytes,
+    kilde: RssKilde,
+    dokumenttype: str = "",
+    feed: str = "",
+) -> list[Dokument]:
     """Parse RSS-XML til normaliserte dokumenter.
 
     Krever at hver post har en utfylt <guid>. Det er en bevisst streng regel,
@@ -81,13 +112,18 @@ def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
     som varslingskilde. Derfor: mangler guid, avvises posten heller enn å få
     en ID som kan bytte ordning under føttene på oss.
     """
+    etikett = f"{kilde.navn}[{feed}]" if feed else kilde.navn
     try:
         rot = ET.fromstring(xml)
     except ET.ParseError as exc:
-        raise RssFeil(f"{kilde.navn}: ugyldig XML: {exc}") from exc
+        raise RssFeil(f"{etikett}: ugyldig XML: {exc}") from exc
 
     kanal = rot.find("channel")
     poster = (kanal if kanal is not None else rot).findall("item")
+
+    rådata: dict[str, str] = {"kanal": kilde.kildenavn}
+    if feed:
+        rådata["feed"] = feed
 
     dokumenter: list[Dokument] = []
     uten_guid = 0
@@ -108,9 +144,10 @@ def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
                 kildenavn=kilde.kildenavn,
                 tittel=tittel,
                 sammendrag=rydd_tekst(_tekst(post, "description")),
+                dokumenttype=dokumenttype,
                 url=_tekst(post, "link"),
                 publisert=parse_dato_rss(post),
-                rådata={"kanal": kilde.kildenavn},
+                rådata=dict(rådata),
             )
         )
 
@@ -118,27 +155,101 @@ def parse_feed(xml: str | bytes, kilde: RssKilde) -> list[Dokument]:
         logger.error(
             "%s: %d av %d poster manglet <guid> og ble forkastet. Uten stabil "
             "ID kan de ikke dedupliseres pålitelig.",
-            kilde.navn, uten_guid, len(poster),
+            etikett, uten_guid, len(poster),
         )
     if poster and not dokumenter:
         raise RssFeil(
-            f"{kilde.navn}: ingen poster hadde <guid> — kilden kan ikke brukes "
+            f"{etikett}: ingen poster hadde <guid> — kilden kan ikke brukes "
             f"til varsling slik den er nå."
         )
 
-    logger.info("%s: %d dokumenter", kilde.navn, len(dokumenter))
+    if not feed:
+        logger.info("%s: %d dokumenter", etikett, len(dokumenter))
+    return dokumenter
+
+
+def _hent_xml(url: str, etikett: str) -> bytes:
+    try:
+        resp = requests.get(
+            url, timeout=_TIMEOUT, headers={"User-Agent": _BRUKERAGENT}
+        )
+        resp.raise_for_status()
+    except requests.RequestException as exc:
+        raise RssFeil(f"Klarte ikke hente {etikett}: {exc}") from exc
+    return resp.content
+
+
+def _er_for_gammel(dok: Dokument, grense: datetime) -> bool:
+    if dok.publisert is None:
+        return True
+    dato = dok.publisert
+    if dato.tzinfo is None:
+        dato = dato.replace(tzinfo=timezone.utc)
+    return dato < grense
+
+
+def _hent_med_delfeeder(kilde: RssKilde) -> list[Dokument]:
+    """Hent typede delfeeder, deretter den generelle feeden som sikkerhetsnett.
+
+    Én post = én guid = ett dokument. Typen settes fra første delfeed som har
+    posten. Poster fra den generelle feeden får typen en delfeed har gitt
+    samme guid (også om delfeedens kopi var for gammel til å tas med), ellers
+    en type utledet fra URL-en.
+    """
+    grense = datetime.now(timezone.utc) - _MAKS_ALDER_DELFEED
+    typer: dict[str, str] = {}
+    dokumenter: list[Dokument] = []
+    sett: set[str] = set()
+    feilet = 0
+    per_type: dict[str, int] = {}
+
+    for verdi, typenavn in kilde.delfeeder:
+        url = f"{kilde.url}?documentType={verdi}"
+        try:
+            deler = parse_feed(_hent_xml(url, f"{kilde.navn}[{verdi}]"), kilde, typenavn, verdi)
+        except RssFeil as exc:
+            logger.warning("%s: delfeed feilet: %s", kilde.navn, exc)
+            feilet += 1
+            continue
+        for dok in deler:
+            typer.setdefault(dok.kilde_id, typenavn)
+            if dok.kilde_id in sett or _er_for_gammel(dok, grense):
+                continue
+            sett.add(dok.kilde_id)
+            dokumenter.append(dok)
+            per_type[typenavn] = per_type.get(typenavn, 0) + 1
+
+    try:
+        generelle = parse_feed(_hent_xml(kilde.url, kilde.navn), kilde)
+    except RssFeil:
+        if not dokumenter:
+            raise  # alt feilet — da er kilden nede
+        logger.warning("%s: generell feed feilet, bruker bare delfeedene", kilde.navn)
+        generelle = []
+
+    fra_generell = 0
+    for dok in generelle:
+        if dok.kilde_id in sett:
+            continue
+        dok.dokumenttype = typer.get(dok.kilde_id) or utled_type_fra_url(dok.url)
+        sett.add(dok.kilde_id)
+        dokumenter.append(dok)
+        fra_generell += 1
+
+    logger.info(
+        "%s: %d dokumenter (%d fra %d delfeeder, %d kun fra generell feed%s)",
+        kilde.navn, len(dokumenter), len(dokumenter) - fra_generell,
+        len(kilde.delfeeder) - feilet, fra_generell,
+        f", {feilet} delfeeder feilet" if feilet else "",
+    )
+    logger.info("%s: per type: %s", kilde.navn, per_type)
     return dokumenter
 
 
 def hent_feed(kilde: RssKilde) -> list[Dokument]:
-    try:
-        resp = requests.get(
-            kilde.url, timeout=_TIMEOUT, headers={"User-Agent": _BRUKERAGENT}
-        )
-        resp.raise_for_status()
-    except requests.RequestException as exc:
-        raise RssFeil(f"Klarte ikke hente {kilde.navn}: {exc}") from exc
-    return parse_feed(resp.content, kilde)
+    if kilde.delfeeder:
+        return _hent_med_delfeeder(kilde)
+    return parse_feed(_hent_xml(kilde.url, kilde.navn), kilde)
 
 
 def hent_alle_feeder(kilder=RSS_KILDER) -> list[Dokument]:
