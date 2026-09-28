@@ -22,9 +22,25 @@ BLEKK = "#1a1a1a"
 GRÅ = "#6b6b6b"
 LYSGRÅ = "#f2f2f2"
 KANT = "#e0e0e0"
+GRØNN = "#1f7a4d"
 
 _SERIF = "Georgia, 'Times New Roman', serif"
 _SANS = "-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+
+# Logoen legges ved e-posten som innebygd bilde (CID), ikke lenket fra en URL.
+# Outlook blokkerer eksterne bilder som standard, og First House leser i
+# Outlook. Et innebygd bilde vises uten at mottakeren må klikke «last ned
+# bilder». epost.py legger ved filen når HTML-en refererer til denne ID-en.
+LOGO_CID = "fh-logo"
+LOGO_FIL = "firsthouse-logo.png"
+
+# Filen er 600 × 70 px; vises i halv størrelse for skarphet på retina.
+_LOGO = (
+    f'<img src="cid:{LOGO_CID}" width="300" height="35" alt="FIRST HOUSE" '
+    f'style="display:block;border:0;outline:none;text-decoration:none;'
+    f'width:300px;height:35px;font-family:{_SERIF};font-size:26px;'
+    f'letter-spacing:3px;color:{BLEKK};margin:0 0 20px">'
+)
 
 
 def _e(t: Any) -> str:
@@ -66,10 +82,12 @@ def _kort(dok: dict[str, Any]) -> str:
             f"{tittel}</a>"
         )
 
+    kantfarge = dok.get("_kantfarge") or RØD
+
     return f"""
     <tr><td style="padding:0 0 14px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
-             style="border:1px solid {KANT};border-left:3px solid {RØD};
+             style="border:1px solid {KANT};border-left:3px solid {kantfarge};
                     border-radius:3px">
         <tr><td style="padding:16px 18px">
           <div style="font-family:{_SANS};font-size:15px;font-weight:600;
@@ -85,8 +103,9 @@ def _kort(dok: dict[str, Any]) -> str:
 
 
 def _ramme(stikkord: str, merkelapp: str, merkefarge: str,
-           intro: str, kort: str, antall: int, bunntekst: str) -> str:
-    n = f"{antall} treff" if antall != 1 else "1 treff"
+           intro: str, kort: str, antall: int, bunntekst: str,
+           enhet: str = "treff") -> str:
+    n = f"{antall} {enhet}"
     return f"""<!DOCTYPE html>
 <html lang="no"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -100,8 +119,7 @@ def _ramme(stikkord: str, merkelapp: str, merkefarge: str,
                 overflow:hidden">
     <tr><td style="height:4px;background:{RØD};font-size:0;line-height:0">&nbsp;</td></tr>
     <tr><td style="padding:32px 32px 0">
-      <div style="font-family:{_SERIF};font-size:34px;letter-spacing:3px;
-                  color:{BLEKK};margin:0 0 20px">FIRST HOUSE</div>
+      {_LOGO}
       <div style="font-family:{_SANS};font-size:11px;letter-spacing:1.6px;
                   color:{GRÅ};margin:0 0 6px">POLITISK OVERVÅKNING</div>
       <h1 style="font-family:{_SANS};font-size:23px;font-weight:700;
@@ -140,9 +158,10 @@ def _bunntekst(stikkord: str, basis_url: str) -> str:
     )
 
 
-def _tekstversjon(stikkord: str, dokumenter: Iterable[dict[str, Any]]) -> str:
+def _tekstversjon(stikkord: str, dokumenter: Iterable[dict[str, Any]],
+                  overskrift: str = "POLITISK OVERVÅKNING") -> str:
     """Ren tekst for lesere som ikke viser HTML, og for konsollmodus."""
-    linjer = [f"POLITISK OVERVÅKNING — {stikkord}", ""]
+    linjer = [f"{overskrift} — {stikkord}", ""]
     for d in dokumenter:
         linjer.append(f"* {d.get('tittel','')}")
         kilde = " · ".join(
@@ -151,6 +170,8 @@ def _tekstversjon(stikkord: str, dokumenter: Iterable[dict[str, Any]]) -> str:
         )
         if kilde:
             linjer.append(f"  {kilde}")
+        if d.get("sammendrag") and d.get("_kantfarge"):
+            linjer.append(f"  {d['sammendrag']}")
         if d.get("url"):
             linjer.append(f"  {d['url']}")
         linjer.append("")
@@ -168,6 +189,41 @@ def varsel(stikkord: str, dokumenter: list[dict[str, Any]],
         _bunntekst(stikkord, basis_url),
     )
     return emne, html_, _tekstversjon(stikkord, dokumenter)
+
+
+def svar(stikkord: str, sporsmal: list[dict[str, Any]],
+         basis_url: str = "") -> tuple[str, str, str]:
+    """Varsel om at spørsmål du tidligere er varslet om, er besvart.
+
+    Hvert element er en dokumentrad (spørsmålet) med `besvart_av`. Kortene får
+    grønn kant og «Besvart av …» som utdrag, slik at de skiller seg tydelig
+    fra nye treff når man skummer innboksen.
+    """
+    kort_data = []
+    for s in sporsmal:
+        d = dict(s)
+        d["_kantfarge"] = GRØNN
+        d["sammendrag"] = (
+            f"Besvart av {s['besvart_av']}" if s.get("besvart_av") else "Besvart"
+        )
+        kort_data.append(d)
+
+    n = len(kort_data)
+    emne = f"Politisk overvåkning: svar på {n} spørsmål for '{stikkord}'"
+    intro = (
+        f'<div style="font-family:{_SANS};font-size:14px;line-height:1.6;'
+        f'color:{BLEKK};margin:0 0 22px">'
+        f"{'Dette spørsmålet' if n == 1 else 'Disse spørsmålene'} har du fått "
+        f"varsel om tidligere, og nå har statsråden svart. Trykk på tittelen "
+        f"for å lese svaret."
+        f"</div>"
+    )
+    html_ = _ramme(
+        stikkord, "SVAR MOTTATT", GRØNN, intro,
+        "".join(_kort(d) for d in kort_data), n,
+        _bunntekst(stikkord, basis_url), enhet="svar",
+    )
+    return emne, html_, _tekstversjon(stikkord, kort_data, "SVAR MOTTATT")
 
 
 def velkomst(stikkord: str, dokumenter: list[dict[str, Any]],
@@ -215,8 +271,7 @@ def innlogging(lenke: str) -> tuple[str, str, str]:
                 overflow:hidden">
     <tr><td style="height:4px;background:{RØD};font-size:0;line-height:0">&nbsp;</td></tr>
     <tr><td style="padding:32px">
-      <div style="font-family:{_SERIF};font-size:34px;letter-spacing:3px;
-                  color:{BLEKK};margin:0 0 20px">FIRST HOUSE</div>
+      {_LOGO}
       <div style="font-family:{_SANS};font-size:11px;letter-spacing:1.6px;
                   color:{GRÅ};margin:0 0 20px">POLITISK OVERVÅKNING</div>
       <p style="font-family:{_SANS};font-size:15px;line-height:1.6;color:{BLEKK};
@@ -233,3 +288,4 @@ def innlogging(lenke: str) -> tuple[str, str, str]:
 </td></tr></table></body></html>"""
     tekst = f"Logg inn i Politisk overvåkning:\n\n{lenke}\n\nLenken virker i 30 minutter."
     return emne, html_, tekst
+    
