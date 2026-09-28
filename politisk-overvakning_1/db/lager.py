@@ -197,6 +197,63 @@ def lagre(dokumenter: Iterable[Dokument]) -> int:
             return cur.rowcount
 
 
+# ── Hendelser ────────────────────────────────────────────────────────────
+
+_SPORSMALSKILDER = (
+    "stortinget_skriftlig_sporsmal",
+    "stortinget_sporretime",
+    "stortinget_interpellasjon",
+)
+
+
+def opprett_svarhendelser(endrede: Iterable[Dokument]) -> int:
+    """Opprett 'svar_mottatt' for endrede spørsmål som nå er besvart.
+
+    Trenger ikke gammel status: unik-nøkkelen (type, kilde, kilde_id) sørger
+    for at et svar bare gir én hendelse, uansett hvor mange ganger spørsmålet
+    senere endres. Må kalles FØR lagre() — ellers er hashen oppdatert og
+    spørsmålet kommer aldri i `endrede` igjen hvis dette feiler.
+    """
+    rader = [
+        (
+            d.kilde, d.kilde_id, d.tittel, d.url,
+            json.dumps(
+                {
+                    "besvart_av": d.besvart_av,
+                    "mottaker": d.mottaker,
+                    "besvart_dato": d.rådata.get("besvart_dato"),
+                },
+                ensure_ascii=False, default=str,
+            ),
+        )
+        for d in endrede
+        if d.kilde in _SPORSMALSKILDER and d.status == "Besvart"
+    ]
+    if not rader:
+        return 0
+
+    with kobling() as conn:
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO hendelse
+                    (type, kilde, kilde_id, dokument_id, tittel, url, detaljer)
+                SELECT 'svar_mottatt', v.kilde, v.kilde_id, d.id,
+                       v.tittel, v.url, v.detaljer::jsonb
+                FROM (VALUES %s) AS v(kilde, kilde_id, tittel, url, detaljer)
+                JOIN dokument d
+                  ON d.kilde = v.kilde AND d.kilde_id = v.kilde_id
+                ON CONFLICT (type, kilde, kilde_id) DO NOTHING
+                """,
+                rader,
+                page_size=1000,
+            )
+            return cur.rowcount
+
+
+# ── Søk ──────────────────────────────────────────────────────────────────
+
 _FELTER = """kilde, kilde_id, kildenavn, tittel, sammendrag, dokumenttype,
              henvisning, url, publisert, avsender, parti, mottaker,
              besvart_av, komite, status, emner, forst_sett"""
@@ -254,6 +311,8 @@ def tell_treff(stikkord: str) -> int:
             )
             return cur.fetchone()[0]
 
+
+# ── Innhentingslogg ──────────────────────────────────────────────────────
 
 def start_logg() -> int:
     with kobling() as conn:
