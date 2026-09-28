@@ -251,6 +251,15 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
                 len(diff.nye),
             )
 
+        # Svarhendelser FØR lagring: feiler dette, er hashene uendret og
+        # neste kjøring prøver igjen. Etter lagring ville svaret vært tapt.
+        try:
+            svar = lager.opprett_svarhendelser(diff.endrede)
+            if svar:
+                logger.info("%d nye svarhendelser.", svar)
+        except Exception as exc:
+            logger.error("Klarte ikke opprette svarhendelser: %s", exc)
+
         lager.lagre(hentede)
         lager.avslutt_logg(
             logg_id, len(hentede), len(diff.nye), len(diff.endrede), ok, feilet
