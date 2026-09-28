@@ -76,6 +76,29 @@ ALTER TABLE dokument
 CREATE INDEX IF NOT EXISTS dokument_sok_idx
     ON dokument USING GIN (sok_vektor);
 
+-- Hendelser på kjente dokumenter: et spørsmål blir besvart, en sak endrer
+-- status, en sak kommer på dagsorden. Et dokument varsles én gang som nytt,
+-- men kan gi flere hendelser senere.
+--
+-- Unikhetskravet (type, kilde, kilde_id) gjør at samme hendelse aldri kan
+-- oppstå to ganger, selv om innhentingen kjører flere ganger.
+CREATE TABLE IF NOT EXISTS hendelse (
+    id            SERIAL PRIMARY KEY,
+    type          TEXT NOT NULL,
+    kilde         TEXT NOT NULL,
+    kilde_id      TEXT NOT NULL,
+    dokument_id   INTEGER,
+    tittel        TEXT,
+    url           TEXT,
+    detaljer      JSONB,
+    oppstod       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    varslet       BOOLEAN NOT NULL DEFAULT false,
+    UNIQUE (type, kilde, kilde_id)
+);
+
+CREATE INDEX IF NOT EXISTS hendelse_uvarslet
+    ON hendelse (varslet) WHERE varslet = false;
+
 -- Logg over innhentinger. Gjør det mulig å se «når kjørte den sist, og hva
 -- kom inn» uten å grave i applikasjonsloggen.
 CREATE TABLE IF NOT EXISTS innhentingslogg (
@@ -97,9 +120,9 @@ CREATE INDEX IF NOT EXISTS innhentingslogg_startet_idx
 -- VARSLINGSLAGET
 --
 -- Alt under dette skillet er midlertidig og slettes når First House flyttes
--- inn i Signalist. Tabellene over (dokument, innhentingslogg) blir stående.
--- Ingen fremmednøkler går fra dokumentlageret og ned hit, nettopp for at
--- dette skal kunne droppes uten å røre ryggraden.
+-- inn i Signalist. Tabellene over (dokument, hendelse, innhentingslogg) blir
+-- stående. Ingen fremmednøkler går fra dokumentlageret og ned hit, nettopp
+-- for at dette skal kunne droppes uten å røre ryggraden.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 CREATE TABLE IF NOT EXISTS bruker (
@@ -173,6 +196,17 @@ CREATE TABLE IF NOT EXISTS varsel_sendt (
 );
 
 CREATE INDEX IF NOT EXISTS varsel_sendt_tid_idx ON varsel_sendt (sendt DESC);
+
+-- Kvittering for hendelsesvarsler (f.eks. «svar mottatt»). Samme prinsipp som
+-- varsel_sendt: gjør det fysisk umulig å sende samme hendelse to ganger til
+-- samme abonnement. varsel_sendt kan ikke gjenbrukes, fordi et svar gjelder
+-- samme dokument som det opprinnelige varselet.
+CREATE TABLE IF NOT EXISTS hendelse_sendt (
+    abonnement_id BIGINT NOT NULL REFERENCES abonnement(id) ON DELETE CASCADE,
+    hendelse_id   BIGINT NOT NULL,
+    sendt         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (abonnement_id, hendelse_id)
+);
 
 CREATE TABLE IF NOT EXISTS utsendingslogg (
     id            BIGSERIAL PRIMARY KEY,
