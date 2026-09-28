@@ -13,11 +13,16 @@ når kontoen er på plass.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import os
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 import requests
+
+from varsling.maler import LOGO_CID, LOGO_FIL
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +46,42 @@ def _avsender() -> str:
     return os.environ.get("EPOST_AVSENDER", STANDARD_AVSENDER)
 
 
+@lru_cache(maxsize=1)
+def _logo_base64() -> str | None:
+    """Logoen som base64, lest én gang per prosess.
+
+    Mangler filen, sendes e-posten likevel. Da viser e-postklienten
+    alt-teksten «FIRST HOUSE» i stedet for bildet — ikke pent, men bedre enn
+    at ingen varsler går ut.
+    """
+    fil = Path(__file__).parent / LOGO_FIL
+    try:
+        return base64.b64encode(fil.read_bytes()).decode("ascii")
+    except OSError as exc:
+        logger.warning("Fant ikke logoen %s: %s — sender uten.", fil, exc)
+        return None
+
+
+def _vedlegg(epost: Epost) -> list[dict]:
+    """Innebygde bilder HTML-en refererer til med cid:."""
+    if f"cid:{LOGO_CID}" not in epost.html:
+        return []
+    innhold = _logo_base64()
+    if not innhold:
+        return []
+    return [{
+        "filename": LOGO_FIL,
+        "content": innhold,
+        "content_type": "image/png",
+        "content_id": LOGO_CID,
+    }]
+
+
 def _send_resend(epost: Epost) -> str:
     nokkel = os.environ.get("RESEND_API_KEY")
     if not nokkel:
         raise EpostFeil("RESEND_API_KEY mangler")
+    vedlegg = _vedlegg(epost)
     try:
         svar = requests.post(
             RESEND_API,
@@ -56,6 +93,7 @@ def _send_resend(epost: Epost) -> str:
                 "subject": epost.emne,
                 "html": epost.html,
                 **({"text": epost.tekst} if epost.tekst else {}),
+                **({"attachments": vedlegg} if vedlegg else {}),
             },
         )
     except requests.RequestException as exc:
