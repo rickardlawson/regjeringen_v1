@@ -15,9 +15,9 @@ import logging
 import sys
 
 from db import lager
-from innhenting import rss, stortinget_api, stortinget_web_fallback
+from innhenting import budsjettsporsmal, rss, stortinget_api, stortinget_web_fallback
 from innhenting.diff import finn_nye, forste_gangs_kjoring
-from innhenting.kilder import API_KILDER, RSS_KILDER
+from innhenting.kilder import API_KILDER, BUDSJETT_KILDER, RSS_KILDER
 
 logger = logging.getLogger("hent")
 
@@ -144,6 +144,9 @@ def kjor(sesjon: str | None = None, torrkjor: bool = False) -> int:
         _hent(kilde, lambda k, s=None: stortinget_api.hent_kilde(k, s))
     for kilde in RSS_KILDER:
         _hent(kilde, lambda k, s=None: rss.hent_feed(k))
+    # Budsjettsvar er ikke sesjonsbasert; --sesjon påvirker dem ikke.
+    for kilde in BUDSJETT_KILDER:
+        _hent(kilde, lambda k, s=None: budsjettsporsmal.hent_kilde(k))
 
     # Må beregnes før forrige sesjon legges til i `hentede`.
     naa = _innevaerende_sesjon(hentede) if sesjon is None else None
@@ -296,6 +299,15 @@ def sjekk_kilder() -> int:
     for kilde in RSS_KILDER:
         try:
             n = len(rss.hent_feed(kilde))
+            print(f"  OK    {n:6} dokumenter  {kilde.kildenavn}")
+        except Exception as exc:
+            print(f"  FEIL              {kilde.kildenavn}: {str(exc)[:60]}")
+            feil += 1
+
+    print("\nRegjeringen — svar på budsjettspørsmål")
+    for kilde in BUDSJETT_KILDER:
+        try:
+            n = len(budsjettsporsmal.hent_kilde(kilde))
             print(f"  OK    {n:6} dokumenter  {kilde.kildenavn}")
         except Exception as exc:
             print(f"  FEIL              {kilde.kildenavn}: {str(exc)[:60]}")

@@ -417,3 +417,74 @@ def test_regjeringen_url_bruker_sti_ikke_parameter() -> None:
     url = reg[0].url
     assert "?id=" not in url, "spørringsparameter gir 404"
     assert url.rstrip("/").endswith("/Rss/2581966"), "feed-id må stå i stien"
+
+
+# ── Svar på budsjettspørsmål ─────────────────────────────────────────────
+# Element kopiert fra regjeringen.no sitt API 21.10.2026 (forkortet svar).
+_BUDSJETTPOST = {
+    "ID": "ID3180040",
+    "Name": "Svar på spørsmål 381 fra Finanskomiteen/Hs fraksjon av 13.10.2026",
+    "QuestionNumber": 381,
+    "Party": "H",
+    "Subtitle": "Fagevaluering av lærerutdanningen",
+    "Question": "<p>Bes om et anslag for hvor mye en fagevaluering av lærerutdanningen vil koste.</p>",
+    "Response": "<p>Spørsmålet er forelagt Kunnskapsdepartementet, som har gitt følgende svar:</p><p>«NOKUT og Forskningsrådet har ansvar &amp; finansierer.»</p>",
+    "Published": "21.10.2026",
+    "SortByPublished": "2026-10-21T09:12:53+02:00",
+}
+
+
+def _budsjettkilde():
+    from innhenting.kilder import BUDSJETT_KILDER
+    return BUDSJETT_KILDER[0]
+
+
+def test_budsjettsvar_normaliseres() -> None:
+    from innhenting.budsjettsporsmal import normaliser
+
+    d = normaliser(_BUDSJETTPOST, _budsjettkilde())
+    assert d is not None
+    assert d.kilde_id == "ID3180040"
+    # Temaet MÅ stå i tittelen — den vektes høyest i søket, og «Svar på
+    # spørsmål 381 fra …» sier ingenting om innholdet.
+    assert "Fagevaluering av lærerutdanningen" in d.tittel
+    assert d.parti == "H"
+    assert d.avsender == "Finanskomiteen/Hs fraksjon"
+    assert d.besvart_av == "Kunnskapsdepartementet"
+    assert "<p>" not in d.sammendrag and "&amp;" not in d.sammendrag
+    assert "NOKUT" in d.sok_tekst
+    assert d.publisert is not None and d.publisert.tzinfo is not None
+
+
+def test_budsjettsvar_lenker_til_sokesiden_ikke_id_siden() -> None:
+    """/no/id3180040/ redirecter til en side som gir 404 (sjekket 21.10.2026)."""
+    from innhenting.budsjettsporsmal import normaliser
+
+    d = normaliser(_BUDSJETTPOST, _budsjettkilde())
+    assert d.url.endswith("/svar-pa-budsjettsporsmal/id3173018/?bq=381")
+
+
+def test_budsjettsvar_uten_id_forkastes() -> None:
+    from innhenting.budsjettsporsmal import normaliser
+
+    assert normaliser({**_BUDSJETTPOST, "ID": ""}, _budsjettkilde()) is None
+
+
+def test_budsjettsvar_paginerer_og_fjerner_dubletter(monkeypatch) -> None:
+    from innhenting import budsjettsporsmal
+
+    sider = {
+        1: {"List": [_BUDSJETTPOST], "TotalPages": 2},
+        2: {"List": [_BUDSJETTPOST, {**_BUDSJETTPOST, "ID": "ID2"}], "TotalPages": 2},
+    }
+    monkeypatch.setattr(budsjettsporsmal, "_hent_side", lambda k, s: sider[s])
+    doks = budsjettsporsmal.hent_kilde(_budsjettkilde())
+    assert [d.kilde_id for d in doks] == ["ID3180040", "ID2"]
+
+
+def test_budsjettkilde_har_varsle_fra() -> None:
+    """Uten varsle_fra går hele etterslepet ut som varsler ved første kjøring."""
+    from innhenting.kilder import BUDSJETT_KILDER, VARSLE_FRA
+
+    for k in BUDSJETT_KILDER:
+        assert VARSLE_FRA[k.navn].tzinfo is not None

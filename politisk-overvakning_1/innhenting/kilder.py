@@ -15,6 +15,7 @@ RSS brukes bare til det APIet ikke dekker:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 API_BASE = "https://data.stortinget.no/eksport"
 RSS_BASE = "https://www.stortinget.no/no/Stottemeny/RSS"
@@ -143,3 +144,54 @@ RSS_KILDER: tuple[RssKilde, ...] = (
 
 # Beholdt for kildesjekken (--sjekk-kilder), som tester denne eksplisitt.
 REGJERINGEN_RSS_URL = "https://www.regjeringen.no/no/rss/Rss/2581966/"
+
+
+# ── Svar på budsjettspørsmål (regjeringen.no) ───────────────────────────
+#
+# Partienes budsjettspørsmål går fra finanskomiteens fraksjoner direkte til
+# Finansdepartementet, ikke via Stortingets spørsmålssystem. De finnes derfor
+# verken i data.stortinget.no eller i regjeringen.no-RSS-en. Søkesiden på
+# regjeringen.no henter dem fra et åpent JSON-endepunkt med fulltekst av både
+# spørsmål og svar (kartlagt 21.10.2026).
+#
+# Én kilde per budsjettår. Rotside-ID-en er ID-en til søkesiden for året, f.eks.
+# https://www.regjeringen.no/no/statsbudsjett/2027/svar-pa-budsjettsporsmal/id3173018/
+# Ny side hver høst: legg til en linje når statsbudsjettet legges fram.
+
+# Fast offset, ikke ZoneInfo: python:3.12-slim har ikke garantert tzdata, og
+# en ZoneInfoNotFoundError ville stoppet containeren ved oppstart.
+_CEST = timezone(timedelta(hours=2))
+
+
+@dataclass(frozen=True, slots=True)
+class BudsjettKilde:
+    navn: str
+    kildenavn: str
+    aar: int
+    rotside_id: int
+    varsle_fra: datetime
+    """Svar publisert før dette tidspunktet lagres og er søkbare, men varsles
+    ikke. Uten denne ville første kjøring lagt inn hundrevis av svar som
+    «usendte» treff, og eksisterende abonnenter fått etterslepet i bolker på
+    25 per e-post over flere dager. Settes til tidspunktet kilden går i drift."""
+
+    @property
+    def side_url(self) -> str:
+        return (
+            f"https://www.regjeringen.no/no/statsbudsjett/{self.aar}/"
+            f"svar-pa-budsjettsporsmal/id{self.rotside_id}/"
+        )
+
+
+BUDSJETT_KILDER: tuple[BudsjettKilde, ...] = (
+    BudsjettKilde(
+        navn="regjeringen_budsjettsporsmal_2027",
+        kildenavn="Regjeringen: Svar på budsjettspørsmål 2027",
+        aar=2027,
+        rotside_id=3173018,
+        varsle_fra=datetime(2026, 10, 22, 0, 0, tzinfo=_CEST),
+    ),
+)
+
+# {kilde: tidspunkt} — brukes av varslingslaget til å holde etterslep utenfor.
+VARSLE_FRA: dict[str, datetime] = {k.navn: k.varsle_fra for k in BUDSJETT_KILDER}

@@ -15,6 +15,7 @@ from typing import Any
 import psycopg2.extras
 
 from db.lager import kobling
+from innhenting.kilder import VARSLE_FRA
 from matching.sporring import bygg_tsquery
 
 logger = logging.getLogger(__name__)
@@ -262,10 +263,23 @@ def usendte_treff(
                       SELECT 1 FROM varsel_sendt v
                       WHERE v.abonnement_id = %(ab)s AND v.dokument_id = d.id
                   )
+                  -- Etterslep fra kilder som er lagt til underveis (se
+                  -- VARSLE_FRA i innhenting/kilder.py) varsles ikke. De
+                  -- ligger i arkivet og er søkbare.
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM unnest(%(sk)s::text[], %(sf)s::timestamptz[]) AS s(kilde, fra)
+                      WHERE s.kilde = d.kilde
+                        AND COALESCE(d.publisert, d.forst_sett) < s.fra
+                  )
                 ORDER BY d.publisert DESC NULLS LAST, d.id DESC
                 LIMIT %(grense)s
                 """,
-                {"q": query, "ab": abonnement_id, "grense": grense},
+                {
+                    "q": query, "ab": abonnement_id, "grense": grense,
+                    "sk": list(VARSLE_FRA.keys()),
+                    "sf": list(VARSLE_FRA.values()),
+                },
             )
             return [dict(r) for r in cur.fetchall()]
 
