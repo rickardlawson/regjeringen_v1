@@ -44,6 +44,9 @@ logger = logging.getLogger(__name__)
 _API = "https://www.regjeringen.no/api/BudsjettSporsmalApi/GetBudsjettSporsmal"
 _TIMEOUT = 45
 _NETTLESER_TIMEOUT_MS = 60_000
+# Opptil ~45 sekunder til Cloudflare-utfordringen er løst.
+_NETTLESER_FORSOK = 15
+_NETTLESER_PAUSE_MS = 3_000
 _BRUKERAGENT = (
     "Mozilla/5.0 (compatible; Uppercase-PolitiskOvervakning/1.0; "
     "+https://uppercase.no)"
@@ -147,14 +150,31 @@ class _Henter:
             ) from exc
         try:
             self._pw = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(headless=True)
+            # channel="chromium" gir full Chromium i ny headless-modus, som
+            # oppfører seg som en vanlig nettleser (headless-shell gjør ikke det).
+            try:
+                self._browser = self._pw.chromium.launch(
+                    channel="chromium", headless=True
+                )
+            except Exception as exc:
+                logger.info(
+                    "%s: full Chromium utilgjengelig (%s), bruker headless-shell",
+                    self.kilde.navn, exc,
+                )
+                self._browser = self._pw.chromium.launch(headless=True)
             kontekst = self._browser.new_context(locale="nb-NO")
             self._side = kontekst.new_page()
             # Søkesiden løser Cloudflare-utfordringen og setter cookies.
+            # Ikke vent på «networkidle»: regjeringen.no har bakgrunnstrafikk
+            # som aldri stopper, så den tilstanden inntreffer aldri.
             self._side.goto(
                 self.kilde.side_url,
-                wait_until="networkidle",
+                wait_until="domcontentloaded",
                 timeout=_NETTLESER_TIMEOUT_MS,
+            )
+            logger.info(
+                "%s: søkeside lastet i nettleser (tittel: %r)",
+                self.kilde.navn, self._side.title(),
             )
         except Exception as exc:  # Playwright har mange feiltyper
             self.lukk()
@@ -163,11 +183,22 @@ class _Henter:
             ) from exc
 
     def _via_nettleser(self, side: int) -> dict:
-        try:
-            svar = self._side.evaluate(_FETCH_JS, _api_url(self.kilde, side))
-        except Exception as exc:
-            raise BudsjettFeil(f"{self.kilde.navn} side {side}: {exc}") from exc
-        status = svar.get("status")
+        # Cloudflare-utfordringen kan bruke noen sekunder på å bli løst etter
+        # at siden er lastet. Til da svarer API-et 403, så vi prøver igjen.
+        status = None
+        svar: dict = {}
+        for forsok in range(_NETTLESER_FORSOK):
+            try:
+                svar = self._side.evaluate(_FETCH_JS, _api_url(self.kilde, side))
+            except Exception as exc:
+                # Siden kan navigere mens utfordringen løses; da avbrytes
+                # evaluate. Vent og prøv igjen.
+                logger.debug("%s side %s: evaluate feilet: %s", self.kilde.navn, side, exc)
+                svar = {}
+            status = svar.get("status")
+            if status == 200:
+                break
+            self._side.wait_for_timeout(_NETTLESER_PAUSE_MS)
         if status != 200:
             raise BudsjettFeil(
                 f"{self.kilde.navn} side {side}: HTTP {status} via nettleser"
