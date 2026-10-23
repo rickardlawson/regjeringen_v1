@@ -449,3 +449,4 @@ følger stikkordet med fra delelenken, gjennom skjemaet, inn i e-postlenken og
 tilbake etter pålogging. Uten det havner en ny bruker på et tomt skjema, og
 delingen er bortkastet. `_trygg_sti()` godtar kun interne stier, så
 parameteren ikke kan misbrukes til åpen viderekobling.
+# redeploy
