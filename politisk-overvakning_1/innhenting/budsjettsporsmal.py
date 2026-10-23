@@ -17,6 +17,10 @@ Fallgruve: enkeltsvarene har INGEN egen side. ID-en redirecter til en URL som
 gir 404. Svarene vises bare som utvidbare elementer på søkesiden. Lenken peker
 derfor til søkesiden filtrert på spørsmålsnummeret (`?bq=381`), som gir en
 kort liste med riktig svar øverst.
+
+Fallgruve: endepunktet svarer 403 på forespørsler som ikke ser ut som de kommer
+fra en nettleser. Vi sender derfor en nettleserkompatibel User-Agent (som
+fortsatt identifiserer oss) og de samme Accept-/Referer-headerne som søkesiden.
 """
 from __future__ import annotations
 
@@ -34,7 +38,16 @@ logger = logging.getLogger(__name__)
 
 _API = "https://www.regjeringen.no/api/BudsjettSporsmalApi/GetBudsjettSporsmal"
 _TIMEOUT = 45
-_BRUKERAGENT = "Uppercase-PolitiskOvervakning/1.0 (+https://uppercase.no)"
+_BRUKERAGENT = (
+    "Mozilla/5.0 (compatible; Uppercase-PolitiskOvervakning/1.0; "
+    "+https://uppercase.no)"
+)
+_HEADERE = {
+    "User-Agent": _BRUKERAGENT,
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "nb-NO,nb;q=0.9,no;q=0.8",
+    "Referer": "https://www.regjeringen.no/",
+}
 _PER_SIDE = 100
 # 2027-budsjettet hadde 499 svar etter én uke. Tidligere år har landet på
 # noen tusen. Grensen er et sikkerhetsnett mot en API-endring som gir
@@ -61,10 +74,7 @@ def _hent_side(kilde: BudsjettKilde, side: int) -> dict:
         "page": side,
     }
     try:
-        resp = requests.get(
-            _API, params=params, timeout=_TIMEOUT,
-            headers={"User-Agent": _BRUKERAGENT, "Accept": "application/json"},
-        )
+        resp = requests.get(_API, params=params, timeout=_TIMEOUT, headers=_HEADERE)
         resp.raise_for_status()
         data = resp.json()
     except (requests.RequestException, ValueError) as exc:
