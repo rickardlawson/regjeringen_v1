@@ -76,7 +76,7 @@ async (url) => {
         headers: {"Accept": "application/json, text/plain, */*"},
         credentials: "include",
     });
-    return {status: r.status, tekst: await r.text()};
+    return {status: r.status, ray: r.headers.get("cf-ray"), tekst: await r.text()};
 }
 """
 
@@ -130,6 +130,10 @@ class _Henter:
         except requests.RequestException as exc:
             raise BudsjettFeil(f"{self.kilde.navn} side {side}: {exc}") from exc
         if resp.status_code == 403:
+            logger.info(
+                "%s: vanlig forespørsel fikk 403 (cf-ray: %s)",
+                self.kilde.navn, resp.headers.get("cf-ray", "ukjent"),
+            )
             raise _Blokkert()
         try:
             resp.raise_for_status()
@@ -167,14 +171,17 @@ class _Henter:
             # Søkesiden løser Cloudflare-utfordringen og setter cookies.
             # Ikke vent på «networkidle»: regjeringen.no har bakgrunnstrafikk
             # som aldri stopper, så den tilstanden inntreffer aldri.
-            self._side.goto(
+            respons = self._side.goto(
                 self.kilde.side_url,
                 wait_until="domcontentloaded",
                 timeout=_NETTLESER_TIMEOUT_MS,
             )
             logger.info(
-                "%s: søkeside lastet i nettleser (tittel: %r)",
-                self.kilde.navn, self._side.title(),
+                "%s: søkeside lastet i nettleser (HTTP %s, cf-ray: %s, tittel: %r)",
+                self.kilde.navn,
+                respons.status if respons else "ukjent",
+                respons.headers.get("cf-ray", "ukjent") if respons else "ukjent",
+                self._side.title(),
             )
         except Exception as exc:  # Playwright har mange feiltyper
             self.lukk()
@@ -201,7 +208,9 @@ class _Henter:
             self._side.wait_for_timeout(_NETTLESER_PAUSE_MS)
         if status != 200:
             raise BudsjettFeil(
-                f"{self.kilde.navn} side {side}: HTTP {status} via nettleser"
+                f"{self.kilde.navn} side {side}: HTTP {status} via nettleser "
+                f"(cf-ray: {svar.get('ray') or 'ukjent'}, "
+                f"sidetittel nå: {self._side.title()!r})"
             )
         try:
             data = json.loads(svar.get("tekst") or "")
